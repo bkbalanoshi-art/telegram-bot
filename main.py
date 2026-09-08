@@ -107,43 +107,55 @@ def gregorian_to_jalali(gy, gm, gd):
     return jy, jm, jd
 
 
-# تسک سنکرون دانلود بهینه شده برای دور زدن محدودیت‌های یوتیوب
+# تابع هوشمند دانلود موزیک با پشتیبانی از سوندکلاود (بدون فیلتر و بلاک آی‌پی)
 def run_yt_download(query: str, is_audio: bool):
     os.makedirs("downloads", exist_ok=True)
 
-    # تنظیمات پایه برای دور زدن سیستم ضد ربات یوتیوب
     base_opts = {
         "quiet": True,
         "no_warnings": True,
         "nocheckcertificate": True,
         "geo_bypass": True,
-        "extractor_args": {
-            "youtube": {
-                "player_client": ["android", "ios", "mweb"]
-            }
-        },
-        "http_headers": {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-            "Accept-Language": "en-US,en;q=0.9",
-        },
     }
 
-    if query.startswith(("http://", "https://")):
-        url = query
+    is_url = query.startswith(("http://", "https://"))
+    
+    # برای آهنگ‌ها اول از سوندکلاود استفاده می‌کنیم تا آی‌پی Railway بلاک نشه
+    if is_url:
+        search_targets = [query]
+    elif is_audio:
+        search_targets = [f"scsearch1:{query}", f"ytsearch1:{query}"]
     else:
-        search_query = f"ytsearch1:{query}"
+        search_targets = [f"ytsearch1:{query}"]
+
+    info = None
+    target_url = None
+
+    for target in search_targets:
         try:
-            with yt_dlp.YoutubeDL(base_opts) as ydl:
-                info = ydl.extract_info(search_query, download=False)
-                if not info or "entries" not in info or not info["entries"]:
-                    return None, None
-                url = info["entries"][0]["webpage_url"]
+            opts = base_opts.copy()
+            if "ytsearch" in target or "youtube" in target:
+                opts["extractor_args"] = {"youtube": {"player_client": ["android", "ios"]}}
+            
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                res = ydl.extract_info(target, download=False)
+                if res:
+                    if "entries" in res and res["entries"]:
+                        info = res["entries"][0]
+                    else:
+                        info = res
+                    if info:
+                        target_url = info.get("webpage_url") or info.get("url") or target
+                        break
         except Exception as e:
-            print(f"YTDL Search Error: {e}")
-            return None, None
+            print(f"تلاش برای {target} ناموفق بود: {e}")
+            continue
 
+    if not info or not target_url:
+        return None, None
+
+    # تنظیمات نهایی دانلود
     ydl_opts = base_opts.copy()
-
     if is_audio:
         ydl_opts.update({
             "outtmpl": "downloads/%(title).50s.%(ext)s",
@@ -163,12 +175,12 @@ def run_yt_download(query: str, is_audio: bool):
         })
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(url, download=True)
-        filename = ydl.prepare_filename(info)
+        download_info = ydl.extract_info(target_url, download=True)
+        filename = ydl.prepare_filename(download_info)
         base = os.path.splitext(filename)[0]
         files = glob.glob(f"{glob.escape(base)}.*")
         file_path = files[0] if files else filename
-        title = info.get("title", "File")
+        title = download_info.get("title", "Music")
         return file_path, title
 
 
