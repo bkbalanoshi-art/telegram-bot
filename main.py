@@ -1,5 +1,5 @@
 from pyrogram import Client, filters
-from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from pyrogram.types import ReplyKeyboardMarkup, KeyboardButton
 import os
 from datetime import datetime, timedelta, timezone
 
@@ -14,7 +14,7 @@ app = Client(
     session_string=session_string
 )
 
-MY_USER_ID = 8989331210  # ✅ ایدی عددی تو (دقت کن حتماً عددی باشه نه استرینگ)
+MY_USER_ID = 8989331210  # آیدی تو
 IRAN_TZ = timezone(timedelta(hours=3, minutes=30))
 
 
@@ -24,15 +24,12 @@ def get_iran_time():
 
 def get_main_panel():
     keyboard = [
-        [InlineKeyboardButton("⏰ ساعت ایران", callback_data="time_iran")],
-        [InlineKeyboardButton("📅 تاریخ ایران", callback_data="date_iran")],
-        [InlineKeyboardButton("📊 روز هفته", callback_data="weekday")],
-        [InlineKeyboardButton("❌ بستن", callback_data="close")],
+        [KeyboardButton("⏰ ساعت ایران"), KeyboardButton("📅 تاریخ ایران")],
+        [KeyboardButton("📊 روز هفته"), KeyboardButton("❌ بستن")]
     ]
-    return InlineKeyboardMarkup(keyboard)
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 
-# ✅ اضافه شد filters.me تا فقط به پیام های خودت جواب بده
 @app.on_message(filters.private & filters.me)
 async def handle_message(client, message):
     if not message.from_user or message.from_user.id != MY_USER_ID:
@@ -47,52 +44,37 @@ async def handle_message(client, message):
             "╔════════════════════════╗\n"
             "║  🎛️ پنل مدیریت ربات  ║\n"
             "╚════════════════════════╝\n\n"
-            "یکی از گزینه‌ها رو بزن:",
+            "یکی از گزینه‌های کیبورد رو بزن:",
             reply_markup=get_main_panel()
         )
 
-
-@app.on_callback_query()
-async def handle_callback(client, callback_query):
-    if callback_query.from_user.id != MY_USER_ID:
-        await callback_query.answer("❌ دسترسی نداری", show_alert=True)
-        return
-
-    data = callback_query.data
-    await callback_query.answer()
-
-    if data == "time_iran":
+    elif text == "⏰ ساعت ایران":
         now = get_iran_time()
-        await callback_query.message.reply(
-            f"⏰ ساعت ایران: `{now.strftime('%H:%M:%S')}`"
-        )
+        await message.reply(f"⏰ ساعت ایران: `{now.strftime('%H:%M:%S')}`")
 
-    elif data == "date_iran":
+    elif text == "📅 تاریخ ایران":
         now = get_iran_time()
         months = ["", "ژانویه", "فوریه", "مارس", "آوریل", "مه", "ژوئن",
                   "ژوئیه", "اوت", "سپتامبر", "اکتبر", "نوامبر", "دسامبر"]
-        await callback_query.message.reply(
+        await message.reply(
             f"📅 تاریخ: `{now.strftime('%Y-%m-%d')}`\n"
             f"ماه: {months[now.month]}\n"
             f"سال: {now.year}"
         )
 
-    elif data == "weekday":
+    elif text == "📊 روز هفته":
         now = get_iran_time()
         weekdays = {
             "Saturday": "شنبه", "Sunday": "یکشنبه", "Monday": "دوشنبه",
             "Tuesday": "سه‌شنبه", "Wednesday": "چهارشنبه",
             "Thursday": "پنج‌شنبه", "Friday": "جمعه"
         }
-        await callback_query.message.reply(
-            f"📊 امروز: {weekdays.get(now.strftime('%A'), '')}"
-        )
+        await message.reply(f"📊 امروز: {weekdays.get(now.strftime('%A'), '')}")
 
-    elif data == "close":
-        await callback_query.message.delete()
+    elif text == "❌ بستن":
+        await message.reply("پنل بسته شد!", reply_markup=ReplyKeyboardRemove())
 
 
-# ✅ روش استاندارد ران کردن Pyrogram
 if __name__ == "__main__":
     print("ربات در حال استارت شدن...")
     app.run()
