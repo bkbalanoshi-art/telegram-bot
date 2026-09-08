@@ -1,7 +1,6 @@
 from pyrogram import Client, filters
 import os
 import asyncio
-from datetime import datetime
 
 api_id = int(os.environ["API_ID"])
 api_hash = os.environ["API_HASH"]
@@ -14,31 +13,39 @@ app = Client(
     session_string=session_string
 )
 
-@app.on_message(filters.private & ~filters.me)
+REPLIES = {
+    "سلام": "سلام! من سلف باتم 🤖",
+    "خوبی": "ممنون، تو چوبی؟",
+    "ربات": "بله، من یه ربات خودکارم",
+    "کمک": "دستورات: سلام، خوبی، ربات، ساعت، کمک",
+    "ساعت": "ساعت الان رو نمیدونم ولی فعالم!",
+}
+
+@app.on_message(filters.private)
 async def handle_message(client, message):
-    text = message.text.lower() if message.text else ""
-    
-    if "????" in text:
-        await message.reply("????! ?? ??? ???? ??")
-    elif "????" in text:
-        await message.reply("?????? ?? ?????? ??")
-    elif "????" in text:
-        await message.reply("???? ?? ?? ???? ??????? ?")
-    elif "????" in text:
-        now = datetime.now().strftime("%H:%M:%S")
-        await message.reply(f"? ???? ???? {now} ???")
-    elif "???" in text:
-        await message.reply("?? ?????: ????? ????? ????? ???? ?? ???")
-    elif "???" in text and message.reply_to_message:
-        try:
-            await message.reply_to_message.copy(message.chat.id)
-            await message.reply("? ??? ??!")
-        except Exception as e:
-            await message.reply(f"? ???: {e}")
+    try:
+        if message.from_user and message.from_user.is_self:
+            return
+
+        if not message.text:
+            return
+
+        text = message.text
+        for key, reply in REPLIES.items():
+            if key in text:
+                await message.reply(reply)
+                return
+
+    except Exception as e:
+        print(f"Error: {e}")
 
 async def main():
     await app.start()
-    print("? ???? ??? ?????!")
+    me = await app.get_me()
+    print("=" * 50)
+    print("✅ ربات راه افتاد!")
+    print(f"اکانت: {me.first_name}")
+    print("=" * 50)
     await asyncio.sleep(99999999)
 
 if __name__ == "__main__":
