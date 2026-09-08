@@ -239,7 +239,7 @@ async def main_handler(client, message):
     elif lower_text.startswith("ویدیو ") or lower_text.startswith("کلیپ "):
         query = text.split(maxsplit=1)[1].strip()
         await safe_edit(client, message, f"🔍 **در حال جستجوی ویدیو...**")
-        results = await asyncio-to_thread(search_music_ultra, query, 1)
+        results = await asyncio.to_thread(search_music_ultra, query, 1)
         if results:
             try:
                 path, title = await asyncio.to_thread(run_yt_download, results[0]["url"], False)
