@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 from pyrogram import Client, filters, idle
 from pyrogram.errors import RPCError, FloodWait, PeerIdInvalid
 
-# تنظیمات
+# تنظیمات اصلی
 static_ffmpeg.add_paths()
 API_ID = int(os.environ.get("API_ID", 0))
 API_HASH = os.environ.get("API_HASH", "")
@@ -34,16 +34,25 @@ def save_session(uid, ss):
     data[str(uid)] = ss
     with open(SESSIONS_FILE, "w") as f: json.dump(data, f)
 
-# --- تابع "اتمی" برای حل مشکل Peer ID ---
-async def safe_edit(client, message, text):
-    """این تابع به جای ادیت، پیام جدید می‌فرستد تا باگ Peer ID را دور بزند"""
+# --- تابع طلایی برای حل مشکل ID not found و Peer ID ---
+async def safe_action(client, chat_id, text, message=None):
+    """این تابع ابتدا چت را شناسایی کرده و سپس پیام می‌فرستد"""
     try:
-        # ۱. ابتدا پیام جدید را می‌فرستیم (این کار هویت چت را لود می‌کند)
-        await client.send_message(message.chat.id, text)
-        # ۲. سپس پیام قبلی (دستور) را پاک می‌کنیم
-        await message.delete()
+        # اجبار پایروگرام به پیدا کردن هویت چت از سرور تلگرام
+        await client.get_chat(chat_id)
+        if message:
+            try:
+                await message.edit_text(text)
+            except:
+                await client.send_message(chat_id, text)
+        else:
+            await client.send_message(chat_id, text)
     except Exception as e:
-        print(f"Edit Error: {e}")
+        # اگر باز هم نشد، یک پیام جدید می‌فرستیم (راه حل آخر)
+        try:
+            await client.send_message(chat_id, text)
+        except:
+            print(f"Error in safe_action: {e}")
 
 # کلاینت اصلی
 app = Client(
@@ -54,13 +63,9 @@ app = Client(
     in_memory=True
 )
 
-@app.on_message(~filters.forwarded)
+@app.on_message(filters.me & ~filters.forwarded)
 async def handle_everything(client, message):
     global TIME_NAME_ACTIVE
-    
-    # فقط اگر خودم پیام فرستادم پردازش کن
-    if not message.from_user or not message.from_user.is_self:
-        return
     if not message.text:
         return
 
@@ -69,35 +74,34 @@ async def handle_everything(client, message):
     chat_id = message.chat.id
 
     try:
-        # دستورات
+        # دستورات پایه
         if cmd == "پینگ":
-            await safe_edit(client, message, "🚀 **سلف‌بات خان فعال است.**")
-
-        elif cmd == "آمار":
-            await safe_edit(client, message, f"📊 تعداد اکانت‌های فعال: `{len(active_clients) + 1}`")
+            await safe_action(client, chat_id, "🚀 **سلف‌بات آنلاین و پاسخگو است.**", message)
 
         elif cmd == "ساعت":
             t = datetime.now(IRAN_TZ).strftime("%H:%M:%S")
-            await safe_edit(client, message, f"🇮🇷 ساعت ایران: `{t}`")
+            await safe_action(client, chat_id, f"🇮🇷 ساعت ایران: `{t}`", message)
 
-        # لاگین
+        elif cmd == "آمار":
+            await safe_action(client, chat_id, f"📊 اکانت‌های فعال: `{len(active_clients) + 1}`", message)
+
+        # --- بخش لاگین مشتری ---
         elif message.reply_to_message and cmd == "لاگین":
             raw_phone = message.reply_to_message.text.strip()
             clean_phone = re.sub(r'[^\d]', '', raw_phone)
             if clean_phone.startswith('0'): clean_phone = '98' + clean_phone[1:]
             
-            await safe_edit(client, message, f"⏳ ارسال کد برای `{clean_phone}`...\n(کد را با **فاصله** بفرستید)")
+            await safe_action(client, chat_id, f"⏳ ارسال کد برای `{clean_phone}`...", message)
             
             tmp = Client(":memory:", api_id=API_ID, api_hash=API_HASH)
             try:
                 await tmp.connect()
                 code_data = await tmp.send_code(clean_phone)
                 pending_logins[chat_id] = {"phone": clean_phone, "hash": code_data.phone_code_hash, "client": tmp}
-                await client.send_message(chat_id, "✅ کد ارسال شد. روی کد ریپلای کن و بگو: `تایید`")
+                await client.send_message(chat_id, "✅ کد ارسال شد. حالا مشتری کد را با **فاصله** بفرستد و شما روی آن ریپلای کنید و بگویید: `تایید`")
             except Exception as e:
-                await client.send_message(chat_id, f"❌ خطا در لاگین: {e}")
+                await client.send_message(chat_id, f"❌ خطا: {e}")
 
-        # تایید
         elif message.reply_to_message and cmd == "تایید":
             info = pending_logins.get(chat_id)
             if not info:
@@ -113,7 +117,7 @@ async def handle_everything(client, message):
                 me = await info["client"].get_me()
                 save_session(me.id, ss)
                 
-                # استارت اکانت مشتری
+                # استارت اکانت جدید
                 new_c = Client(f"sub_{me.id}", api_id=API_ID, api_hash=API_HASH, session_string=ss, in_memory=True)
                 await new_c.start()
                 active_clients[str(me.id)] = new_c
@@ -123,34 +127,20 @@ async def handle_everything(client, message):
             except Exception as e:
                 await client.send_message(chat_id, f"❌ خطا در تایید: {e}")
 
-        # اضافه کردن سشن
-        elif cmd.startswith("اضافه "):
-            new_ss = text.split(maxsplit=1)[1].strip()
-            try:
-                new_c = Client(":memory:", api_id=API_ID, api_hash=API_HASH, session_string=new_ss)
-                await new_c.start()
-                me = await new_c.get_me()
-                save_session(me.id, new_ss)
-                active_clients[str(me.id)] = new_c
-                await safe_edit(client, message, f"✅ اکانت `{me.first_name}` اضافه شد.")
-            except Exception as e:
-                await safe_edit(client, message, f"❌ سشن نامعتبر: {e}")
-
-        # تایم اسم
+        # --- تایم اسم ---
         elif cmd == "تایم فعال":
             TIME_NAME_ACTIVE = True
-            await safe_edit(client, message, "✅ تایم اسم روشن شد.")
+            await safe_action(client, chat_id, "✅ اسم ساعتی روشن شد.", message)
         elif cmd == "تایم خاموش":
             TIME_NAME_ACTIVE = False
-            await safe_edit(client, message, "❌ تایم اسم خاموش شد.")
+            await safe_action(client, chat_id, "❌ اسم ساعتی خاموش شد.", message)
 
-    except (PeerIdInvalid, ValueError):
-        # این بخش برای گرفتن ارور Peer ID و جلوگیری از کرش کردن
-        try:
-            await client.send_message(chat_id, "⚠️ خطای هویت چت رخ داد. مجدداً تلاش کنید.")
-        except: pass
+    except KeyError:
+        # حل مشکل ID NOT FOUND
+        await client.get_chat(chat_id)
+        await client.send_message(chat_id, "⚠️ هویت چت شناسایی شد. دوباره دستور را ارسال کنید.")
 
-# تسک پس‌زمینه ساعت
+# تسک ساعت
 async def time_bg():
     while True:
         if TIME_NAME_ACTIVE:
@@ -161,23 +151,22 @@ async def time_bg():
             except: pass
         await asyncio.sleep(60)
 
-# استارت‌آپ
+# راه‌اندازی
 async def main():
-    print("Starting Master Account...")
+    print("در حال استارت اکانت اصلی...")
     await app.start()
     
-    # لود سشن‌های قبلی
     saved = load_sessions()
     for uid, ss in saved.items():
         try:
             c = Client(f"sub_{uid}", api_id=API_ID, api_hash=API_HASH, session_string=ss, in_memory=True)
             await c.start()
             active_clients[uid] = c
-            print(f"Sub-Account {uid} Started.")
+            print(f"اکانت {uid} فعال گشت.")
         except: pass
         
     asyncio.create_task(time_bg())
-    print("System is Online!")
+    print("سیستم آماده استفاده است.")
     await idle()
 
 if __name__ == "__main__":
