@@ -1,9 +1,6 @@
 import asyncio
 import glob
-import json
 import os
-import urllib.parse
-import urllib.request
 from datetime import datetime
 from zoneinfo import ZoneInfo
 import static_ffmpeg
@@ -57,109 +54,84 @@ def gregorian_to_jalali(gy, gm, gd):
     else: jm = 7 + ((days - 186) // 30); jd = 1 + ((days - 186) % 30)
     return jy, jm, jd
 
-# ─── موتور جستجوی اختصاصی و بدون بلاکی ───
-def fetch_search_results_api(query: str, max_results=5):
-    encoded_query = urllib.parse.quote(query)
-    
-    # سرورهای اختصاصی جستجوی بدون بلاک
-    endpoints = [
-        f"https://pipedapi.kavin.rocks/search?q={encoded_query}&filter=all",
-        f"https://api.piped.private.coffee/search?q={encoded_query}&filter=all",
-        f"https://inv.tux.pizza/api/v1/search?q={encoded_query}&type=video",
-        f"https://invidious.nerdvpn.de/api/v1/search?q={encoded_query}&type=video",
-    ]
-
+# ─── موتور جستجوی ترکیبی چندگانه (YouTube + SoundCloud) ───
+def search_music_multi_engine(query: str, max_results=5):
     results = []
     seen_urls = set()
 
-    for url in endpoints:
+    # ۱. جستجو در یوتیوب با کلاینت‌های ضدبلاکی
+    yt_opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "extract_flat": True,
+        "skip_download": True,
+        "geo_bypass": True,
+        "nocheckcertificate": True,
+        "extractor_args": {"youtube": {"player_client": ["android", "ios", "mweb"]}},
+        "http_headers": {
+            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15"
+        }
+    }
+
+    try:
+        with yt_dlp.YoutubeDL(yt_opts) as ydl:
+            info = ydl.extract_info(f"ytsearch{max_results}:{query}", download=False)
+            if info and "entries" in info:
+                for entry in info["entries"]:
+                    if not entry: continue
+                    url = entry.get("url") or entry.get("webpage_url")
+                    if not url and entry.get("id"):
+                        url = f"https://www.youtube.com/watch?v={entry.get('id')}"
+                    if url and url not in seen_urls:
+                        seen_urls.add(url)
+                        results.append({
+                            "title": entry.get("title", "موزیک"),
+                            "url": url,
+                            "duration": int(entry.get("duration") or 0),
+                            "uploader": entry.get("uploader") or entry.get("channel") or "YouTube"
+                        })
+    except Exception as e:
+        print(f"YouTube search error: {e}")
+
+    # ۲. اگر یوتیوب کم نتونست بیاره یا بلاک بود، از سوندکلاود بگرد (سوندکلاود بلاک نمیشه)
+    if len(results) < max_results:
+        sc_opts = {
+            "quiet": True,
+            "no_warnings": True,
+            "extract_flat": True,
+            "skip_download": True
+        }
         try:
-            req = urllib.request.Request(
-                url, 
-                headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
-            )
-            with urllib.request.urlopen(req, timeout=4) as resp:
-                if resp.status == 200:
-                    data = json.loads(resp.read().decode('utf-8'))
-                    
-                    # فرمت Piped API
-                    if isinstance(data, dict) and "items" in data:
-                        for item in data["items"]:
-                            if item.get("type") == "stream":
-                                v_url = "https://www.youtube.com" + item.get("url", "")
-                                if v_url in seen_urls: continue
-                                seen_urls.add(v_url)
-
-                                results.append({
-                                    "title": item.get("title", "Unknown"),
-                                    "url": v_url,
-                                    "duration": item.get("duration", 0),
-                                    "uploader": item.get("uploaderName", "Music")
-                                })
-                                if len(results) >= max_results:
-                                    return results
-
-                    # فرمت Invidious API
-                    elif isinstance(data, list):
-                        for item in data:
-                            if item.get("type") == "video":
-                                v_id = item.get("videoId")
-                                if not v_id: continue
-                                v_url = f"https://www.youtube.com/watch?v={v_id}"
-                                if v_url in seen_urls: continue
-                                seen_urls.add(v_url)
-
-                                results.append({
-                                    "title": item.get("title", "Unknown"),
-                                    "url": v_url,
-                                    "duration": item.get("lengthSeconds", 0),
-                                    "uploader": item.get("author", "Music")
-                                })
-                                if len(results) >= max_results:
-                                    return results
-        except Exception as e:
-            print(f"Search API error: {e}")
-            continue
-
-    # اگر سرورهای فوق جواب ندادند، سوندکلاود پشتیبان
-    if not results:
-        try:
-            opts = {"quiet": True, "no_warnings": True, "extract_flat": True}
-            with yt_dlp.YoutubeDL(opts) as ydl:
-                info = ydl.extract_info(f"scsearch{max_results}:{query}", download=False)
-                if info and "entries" in info:
-                    for entry in info["entries"]:
+            with yt_dlp.YoutubeDL(sc_opts) as ydl:
+                sc_info = ydl.extract_info(f"scsearch{max_results}:{query}", download=False)
+                if sc_info and "entries" in sc_info:
+                    for entry in sc_info["entries"]:
                         if not entry: continue
-                        u = entry.get("webpage_url") or entry.get("url")
-                        if u and u not in seen_urls:
-                            seen_urls.add(u)
+                        url = entry.get("url") or entry.get("webpage_url")
+                        if url and url not in seen_urls:
+                            seen_urls.add(url)
                             results.append({
-                                "title": entry.get("title", "Music"),
-                                "url": u,
+                                "title": entry.get("title", "موزیک"),
+                                "url": url,
                                 "duration": int(entry.get("duration") or 0),
-                                "uploader": entry.get("uploader", "SoundCloud")
+                                "uploader": entry.get("uploader") or "SoundCloud"
                             })
         except Exception as e:
-            print(f"SoundCloud fallback error: {e}")
+            print(f"SoundCloud search error: {e}")
 
-    return results
+    return results[:max_results]
 
-# ─── دانلودر مستقیم و بدون بلاک ───
+# ─── دانلود مستقیم ───
 def run_yt_download(url: str, is_audio: bool):
     os.makedirs("downloads", exist_ok=True)
-    
     ydl_opts = {
         "quiet": True,
         "no_warnings": True,
         "nocheckcertificate": True,
         "geo_bypass": True,
-        "extractor_args": {
-            "youtube": {
-                "player_client": ["android", "ios"]
-            }
-        },
+        "extractor_args": {"youtube": {"player_client": ["android", "ios", "mweb"]}},
         "http_headers": {
-            "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
         }
     }
 
@@ -182,17 +154,17 @@ def run_yt_download(url: str, is_audio: bool):
         files = glob.glob(f"{glob.escape(base)}.*")
         return files[0] if files else filename, info.get("title", "Music")
 
-# دانلود و ارسال در تلگرام
+# دانلود و ارسال فایل صوتی یا تصویری
 async def download_and_send_url(message, url: str, is_audio: bool):
     try:
-        await message.edit_text("⏳ **در حال دانلود با کیفیت عالی...**")
+        await message.edit_text("⏳ **در حال دانلود فایل با بالاترین کیفیت...**")
         file_path, title = await asyncio.to_thread(run_yt_download, url, is_audio)
 
         if not file_path or not os.path.exists(file_path):
             await message.edit_text("❌ **خطا در دانلود فایل!**")
             return
 
-        await message.edit_text("📤 **دانلود شد! در حال ارسال به تلگرام...**")
+        await message.edit_text("📤 **دانلود شد! در حال آپلود به تلگرام...**")
 
         if is_audio or file_path.endswith(".mp3"):
             await message.reply_audio(audio=file_path, title=title[:50], caption=f"🎵 **{title}**")
@@ -233,7 +205,7 @@ async def handle_commands(client, message):
     # تبدیل اعداد فارسی به انگلیسی
     clean_digit_text = text.translate(PERSIAN_TO_ENG)
 
-    # 1. انتخاب عدد از لیست ۵ تایی (ریپلای)
+    # ۱. پاسخ به لیست انتخابی (۱ تا ۵)
     if clean_digit_text.isdigit() and message.reply_to_message:
         if chat_id in pending_music_choices:
             choice = int(clean_digit_text) - 1
@@ -245,54 +217,54 @@ async def handle_commands(client, message):
                 await download_and_send_url(message, selected_url, is_audio=True)
                 return
             else:
-                await message.edit_text("❌ **شماره انتخابی در لیست نیست!**")
+                await message.edit_text("❌ **عدد انتخابی در لیست نیست!**")
                 return
 
-    # 2. جستجوی پیشرفته آهنگ (بلوچی، کردی، ترکی، فارسی، خارجی و...)
+    # ۲. جستجوی موزیک (پشتیبانی از انواع زبان‌ها و قومیت‌ها)
     if lower_text.startswith("اهنگ ") or lower_text.startswith("آهنگ "):
         query = text.split(maxsplit=1)[1].strip()
-        await message.edit_text(f"🔍 **در حال جستجو برای:** `{query}`...")
+        await message.edit_text(f"🔍 **در حال جستجوی دقیق برای:** `{query}`...")
         
-        results = await asyncio.to_thread(fetch_search_results_api, query, 5)
+        results = await asyncio.to_thread(search_music_multi_engine, query, 5)
         
         if not results:
-            await message.edit_text("❌ **هیچ موزیکی یافت نشد!**")
+            await message.edit_text("❌ **متأسفانه هیچ موزیکی پیدا نشد!**\nلطفاً اسم آهنگ یا خواننده را دقیق‌تر بنویسید.")
             return
             
         pending_music_choices[chat_id] = results
         
-        msg = f"🎧 **نتایج پیدا شده برای:** `{query}`\n\n"
+        msg = f"🎧 **نتایج یافت‌شده برای:** `{query}`\n\n"
         for i, res in enumerate(results):
             dur = res['duration']
             dur_str = f"{dur//60}:{dur%60:02d}" if dur > 0 else "نامشخص"
             msg += f"**{i+1}.** `{res['title'][:45]}`\n🎙 {res['uploader'][:25]} ⏱ {dur_str}\n\n"
             
-        msg += "👇 **روی همین پیام ریپلای کنید و شماره آن (مثلاً ۱ یا 1) را بفرستید.**"
+        msg += "👇 **کافیست روی همین پیام ریپلای کنید و شماره آن (مثلاً ۱ یا 1) را بفرستید.**"
         await message.edit_text(msg)
         return
 
-    # 3. دانلود ویدیو
+    # ۳. دانلود ویدیو
     elif lower_text.startswith("ویدیو "):
         query = text.split(maxsplit=1)[1].strip()
         await message.edit_text(f"🔍 **در حال جستجوی ویدیو...**")
-        results = await asyncio.to_thread(fetch_search_results_api, query, 1)
+        results = await asyncio.to_thread(search_music_multi_engine, query, 1)
         if results:
             await download_and_send_url(message, results[0]["url"], is_audio=False)
         else:
             await message.edit_text("❌ **ویدیویی یافت نشد.**")
         return
 
-    # 4. دانلود مستقیم لینک
+    # ۴. دانلود مستقیم از لینک
     elif lower_text.startswith("دانلود ") or lower_text.startswith("dl "):
         query = text.split(maxsplit=1)[1].strip()
         await download_and_send_url(message, query, is_audio=False)
         return
 
-    # پنل و دستورات عمومی
-    if lower_text in ["پنل", "منو"]:
+    # ۵. پنل راهنما و دستورات عمومی
+    if lower_text in ["پنل", "منو", "panel"]:
         await message.edit_text(
             "╭───「 👑 **𝗞𝗛𝗔𝗡 𝗦𝗘𝗟𝗙** 」\n"
-            "├ 🎵 `اهنگ <نام>` ➔ جستجوی موزیک\n"
+            "├ 🎵 `اهنگ <نام>` ➔ جستجوی موزیک (فارسی، محلی، خارجی)\n"
             "├ 🎬 `ویدیو <نام>` ➔ دانلود ویدیو\n"
             "├ ⏱ `ساعت` | `تاریخ` | `زمان`\n"
             "├ 👤 `تایم فعال` | `تایم خاموش`\n"
@@ -318,7 +290,7 @@ async def handle_commands(client, message):
 async def main():
     await app.start()
     asyncio.create_task(auto_time_name_task())
-    print("سلف‌بات خان با موتور جستجوی جدید بدون بلاکی فعال شد...")
+    print("سلف‌بات خان با جستجوی هوشمند فعال شد...")
     await idle()
     await app.stop()
 
