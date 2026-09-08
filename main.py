@@ -32,6 +32,14 @@ TIME_NAME_ACTIVE = False
 # دیتابیس موقت برای ذخیره نتایج جستجو {chat_id: [results]}
 pending_music_choices = {}
 
+# تمامی کلیدواژه‌های فارسی برای جستجوی آهنگ
+MUSIC_PREFIXES = (
+    "اهنگ ", "آهنگ ", "موزیک ", "ترانه ", "ریمیکس ", "رمیکس ",
+    "دانلود اهنگ ", "دانلود آهنگ ", "دانلود موزیک ", "دانلود ترانه ",
+    "دانلود ریمیکس ", "دانلود رمیکس ", "اهنگ جدید ", "آهنگ جدید ",
+    "موزیک جدید ", "صوتی ", "فایل صوتی "
+)
+
 # تبدیل اعداد فارسی به انگلیسی
 PERSIAN_TO_ENG = str.maketrans('۰۱۲۳۴۵۶۷۸۹', '0123456789')
 
@@ -209,9 +217,14 @@ async def handle_commands(client, message):
                 await message.edit_text("❌ **عدد انتخابی در لیست نیست!**")
                 return
 
-    # ۲. جستجوی جدیدترین موزیک‌ها (۱۰ تایی)
-    if lower_text.startswith("اهنگ ") or lower_text.startswith("آهنگ "):
-        query = text.split(maxsplit=1)[1].strip()
+    # ۲. بررسی تمامی کلیدواژه‌های فارسی برای دانلود موزیک
+    matched_prefix = next((prefix for prefix in MUSIC_PREFIXES if lower_text.startswith(prefix)), None)
+    if matched_prefix:
+        query = text[len(matched_prefix):].strip()
+        if not query:
+            await message.edit_text("❌ **لطفاً نام آهنگ یا خواننده را وارد کنید.**\nمثال: `موزیک شادمهر تقدیر`")
+            return
+
         await message.edit_text(f"🔍 **در حال جستجوی جدیدترین آهنگ‌های:** `{query}`...")
         
         results = await asyncio.to_thread(search_music_multi_engine, query, 10)
@@ -233,7 +246,7 @@ async def handle_commands(client, message):
         return
 
     # ۳. دانلود ویدیو
-    elif lower_text.startswith("ویدیو "):
+    elif lower_text.startswith("ویدیو ") or lower_text.startswith("کلیپ "):
         query = text.split(maxsplit=1)[1].strip()
         await message.edit_text(f"🔍 **در حال جستجوی ویدیو...**")
         results = await asyncio.to_thread(search_music_multi_engine, query, 1)
@@ -253,8 +266,8 @@ async def handle_commands(client, message):
     if lower_text in ["پنل", "منو", "panel"]:
         await message.edit_text(
             "╭───「 👑 **𝗞𝗛𝗔𝗡 𝗦𝗘𝗟𝗙** 」\n"
-            "├ 🎵 `اهنگ <نام خواننده>` ➔ لیست ۱۰ تایی جدیدترین آهنگ‌ها\n"
-            "├ 🎬 `ویدیو <نام>` ➔ دانلود ویدیو\n"
+            "├ 🎵 `اهنگ` / `موزیک` / `ترانه` / `ریمیکس` <نام خواننده>\n"
+            "├ 🎬 `ویدیو` / `کلیپ` <نام>\n"
             "├ ⏱ `ساعت` | `تاریخ` | `زمان`\n"
             "├ 👤 `تایم فعال` | `تایم خاموش`\n"
             "╰───「 ⚡️ 𝑂𝑛𝑙𝑖𝑛𝑒 」"
@@ -279,7 +292,7 @@ async def handle_commands(client, message):
 async def main():
     await app.start()
     asyncio.create_task(auto_time_name_task())
-    print("سلف‌بات خان با لیست ۱۰ تایی آهنگ‌ها فعال شد...")
+    print("سلف‌بات خان با پشتیبانی از تمامی واژه‌های فارسی آهنگ فعال شد...")
     await idle()
     await app.stop()
 
