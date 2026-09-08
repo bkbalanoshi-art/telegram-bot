@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 import static_ffmpeg
 import yt_dlp
 from pyrogram import Client, filters, idle
-from pyrogram.errors import FloodWait
+from pyrogram.errors import FloodWait, PeerIdInvalid, RPCError
 
 # فعال‌سازی FFMPEG
 static_ffmpeg.add_paths()
@@ -17,7 +17,6 @@ API_ID = int(os.environ.get("API_ID", 0))
 API_HASH = os.environ.get("API_HASH", "")
 SESSION_STRING = os.environ.get("SESSION_STRING", "")
 
-# ساخت کلاینت بدون in_memory برای حل باگ get_peer_type
 app = Client("khan_self", API_ID, API_HASH, session_string=SESSION_STRING)
 
 # تنظیمات زمانی و حافظه موقت
@@ -39,19 +38,27 @@ MUSIC_PREFIXES = (
     "دانلود ریمیکس ", "اهنگ جدید ", "آهنگ جدید ", "صوتی "
 )
 
-# ─── تابع ارسال و ادیت امن ───
+# ─── تابع ارسال و ادیت هوشمند جهت رفع قطعی باگ Peer ID ───
 async def safe_edit(client, message, text):
     try:
         await message.edit_text(text)
-    except Exception:
+    except (ValueError, KeyError, PeerIdInvalid, RPCError):
+        # اگر آیدی چت در کش نبود، کش چت‌ها را به‌روزرسانی می‌کنیم
         try:
-            await client.send_message(message.chat.id, text)
+            async for _ in client.get_dialogs(limit=30):
+                pass
+        except Exception:
+            pass
+        
+        # تلاش مجدد برای ارسال پیام
+        try:
+            await message.reply_text(text)
             try:
                 await message.delete()
             except Exception:
                 pass
         except Exception as e:
-            print(f"Safe Edit Error: {e}")
+            print(f"Safe Edit Fallback Error: {e}")
 
 # ─── موتور جستجوی فوق‌العاده دقیق آهنگ ───
 def search_music_ultra(query: str, max_results=10):
@@ -159,8 +166,7 @@ def run_yt_download(url: str, is_audio: bool):
 @app.on_message(filters.me & ~filters.forwarded)
 async def main_handler(client, message):
     global TIME_NAME_ACTIVE
-    # امنیت: اگر پیام متن نداشت یا فرستنده معلوم نبود پردازش نکن
-    if not message or not message.text or not message.from_user: 
+    if not message or not message.text: 
         return
     
     text = message.text.strip()
@@ -281,6 +287,15 @@ async def time_task():
 
 async def main():
     await app.start()
+    
+    # 💥 حل قطعی باگ Peer ID: پیش‌بارگذاری لیست چت‌ها هنگام استارت 💥
+    print("در حال بارگذاری و ثبت آیدی چت‌ها در حافظه...")
+    try:
+        async for _ in app.get_dialogs(limit=100):
+            pass
+    except Exception as e:
+        print(f"Dialog pre-fetch warning: {e}")
+
     asyncio.create_task(time_task())
     print("KHAN SELF IS ONLINE & READY")
     await idle()
