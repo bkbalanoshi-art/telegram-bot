@@ -107,22 +107,45 @@ def gregorian_to_jalali(gy, gm, gd):
     return jy, jm, jd
 
 
-# تسک سنکرون دانلود (در ترد جداگانه اجرا می‌شود)
+# تسک سنکرون دانلود بهینه شده برای دور زدن محدودیت‌های یوتیوب
 def run_yt_download(query: str, is_audio: bool):
     os.makedirs("downloads", exist_ok=True)
+
+    # تنظیمات پایه برای دور زدن سیستم ضد ربات یوتیوب
+    base_opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "nocheckcertificate": True,
+        "geo_bypass": True,
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["android", "ios", "mweb"]
+            }
+        },
+        "http_headers": {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+            "Accept-Language": "en-US,en;q=0.9",
+        },
+    }
 
     if query.startswith(("http://", "https://")):
         url = query
     else:
         search_query = f"ytsearch1:{query}"
-        with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True}) as ydl:
-            info = ydl.extract_info(search_query, download=False)
-            if not info or "entries" not in info or not info["entries"]:
-                return None, None
-            url = info["entries"][0]["webpage_url"]
+        try:
+            with yt_dlp.YoutubeDL(base_opts) as ydl:
+                info = ydl.extract_info(search_query, download=False)
+                if not info or "entries" not in info or not info["entries"]:
+                    return None, None
+                url = info["entries"][0]["webpage_url"]
+        except Exception as e:
+            print(f"YTDL Search Error: {e}")
+            return None, None
+
+    ydl_opts = base_opts.copy()
 
     if is_audio:
-        ydl_opts = {
+        ydl_opts.update({
             "outtmpl": "downloads/%(title).50s.%(ext)s",
             "format": "bestaudio/best",
             "postprocessors": [
@@ -132,16 +155,12 @@ def run_yt_download(query: str, is_audio: bool):
                     "preferredquality": "192",
                 }
             ],
-            "quiet": True,
-            "no_warnings": True,
-        }
+        })
     else:
-        ydl_opts = {
+        ydl_opts.update({
             "outtmpl": "downloads/%(title).50s.%(ext)s",
             "format": "best[ext=mp4]/best",
-            "quiet": True,
-            "no_warnings": True,
-        }
+        })
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=True)
@@ -252,7 +271,7 @@ async def handle_commands(client, message):
             "├ ⏱ **بخش زمان و تاریخ:**\n"
             "│ • `ساعت` ➔ ساعت ایران و آمریکا\n"
             "│ • `تاریخ` ➔ تاریخ شمسی و میلادی\n"
-            "│ • `روز` ➔ روز هفته\n"
+            "│ • `روز` ➔ نمایش روز هفته\n"
             "│ • `زمان` ➔ گزارش کامل ساعت و تقویم\n"
             "│\n"
             "├ 👤 **بخش اسم ساعتی:**\n"
