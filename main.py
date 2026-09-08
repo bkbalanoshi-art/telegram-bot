@@ -1,14 +1,14 @@
 import asyncio
-import os
 import glob
+import os
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from pyrogram import Client, filters, idle
-from pyrogram.errors import FloodWait
-import yt_dlp
 import static_ffmpeg
+import yt_dlp
+from pyrogram import Client, filters, idle
+from pyrogram.errors import FloodWait, MessageNotModified
 
-# فعال‌سازی خودکار FFMPEG برای تبدیل آهنگ
+# لود کردن خودکار ابزار ویدیویی FFMPEG
 static_ffmpeg.add_paths()
 
 # متغیرهای محیطی Railway
@@ -31,29 +31,66 @@ US_TZ = ZoneInfo("America/New_York")
 DEFAULT_NAME = "𝗞𝗛𝗔𝗡"
 TIME_NAME_ACTIVE = False
 
+# تبدیل اعداد به فونت توپر
 BOLD_DIGITS = {
-    "0": "𝟎", "1": "𝟏", "2": "𝟐", "3": "𝟑", "4": "𝟒",
-    "5": "𝟓", "6": "𝟔", "7": "𝟕", "8": "𝟖", "9": "𝟗", ":": ":"
+    "0": "𝟎",
+    "1": "𝟏",
+    "2": "𝟐",
+    "3": "𝟑",
+    "4": "𝟒",
+    "5": "𝟓",
+    "6": "𝟔",
+    "7": "𝟕",
+    "8": "𝟖",
+    "9": "𝟗",
+    ":": ":",
 }
+
 
 def to_bold_time(time_str: str) -> str:
     return "".join(BOLD_DIGITS.get(ch, ch) for ch in time_str)
 
+
+# لیست ماه‌ها و روزها
 PERSIAN_MONTHS = [
-    "فروردین", "اردیبهشت", "خرداد", "تیر", "مرداد", "شهریور",
-    "مهر", "آبان", "آذر", "دی", "بهمن", "اسفند"
+    "فروردین",
+    "اردیبهشت",
+    "خرداد",
+    "تیر",
+    "مرداد",
+    "شهریور",
+    "مهر",
+    "آبان",
+    "آذر",
+    "دی",
+    "بهمن",
+    "اسفند",
 ]
 
 PERSIAN_WEEKDAYS = {
-    "Saturday": "شنبه", "Sunday": "یکشنبه", "Monday": "دوشنبه",
-    "Tuesday": "سه‌شنبه", "Wednesday": "چهارشنبه",
-    "Thursday": "پنج‌شنبه", "Friday": "جمعه"
+    "Saturday": "شنبه",
+    "Sunday": "یکشنبه",
+    "Monday": "دوشنبه",
+    "Tuesday": "سه‌شنبه",
+    "Wednesday": "چهارشنبه",
+    "Thursday": "پنج‌شنبه",
+    "Friday": "جمعه",
 }
 
+
+# تابع محاسبه تاریخ شمسی
 def gregorian_to_jalali(gy, gm, gd):
     g_d_m = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334]
     gy2 = gy + 1 if gm > 2 else gy
-    days = 355666 + (365 * gy) + ((gy2 + 3) // 4) - ((gy2 + 99) // 100) + ((gy2 + 399) // 400) + gd + g_d_m[gm - 1]
+    days = (
+        355666
+        + (365 * gy)
+        + ((gy2 + 3) // 4)
+        - ((gy2 + 99) // 100)
+        + ((gy2 + 399) // 400)
+        + gd
+        + g_d_m[gm - 1]
+    )
     jy = -1595 + (33 * (days // 12053))
     days %= 12053
     jy += 4 * (days // 1461)
@@ -70,62 +107,76 @@ def gregorian_to_jalali(gy, gm, gd):
     return jy, jm, jd
 
 
-# تابع دانلود و ارسال آهنگ/ویدیو
-async def download_and_send(client, message, query, is_audio=False):
-    await message.edit_text("⏳ **در حال جستجو و دانلود...**")
+# تسک سنکرون دانلود (در ترد جداگانه اجرا می‌شود)
+def run_yt_download(query: str, is_audio: bool):
+    os.makedirs("downloads", exist_ok=True)
 
-    file_path = None
-    try:
-        os.makedirs("downloads", exist_ok=True)
+    if query.startswith(("http://", "https://")):
+        url = query
+    else:
+        search_query = f"ytsearch1:{query}"
+        with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True}) as ydl:
+            info = ydl.extract_info(search_query, download=False)
+            if not info or "entries" not in info or not info["entries"]:
+                return None, None
+            url = info["entries"][0]["webpage_url"]
 
-        # اگر لینک مستقیم بود از خودش استفاده کن، وگرنه در یوتیوب سرچ کن
-        if query.startswith(("http://", "https://")):
-            url = query
-        else:
-            search_query = f"ytsearch1:{query}"
-            with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True}) as ydl:
-                info = ydl.extract_info(search_query, download=False)
-                if not info or "entries" not in info or not info["entries"]:
-                    await message.edit_text("❌ **هیچ نتیجه‌ای یافت نشد.**")
-                    return
-                url = info["entries"][0]["webpage_url"]
-
-        # تنظیمات دانلود
-        if is_audio:
-            ydl_opts = {
-                "outtmpl": "downloads/%(title).50s.%(ext)s",
-                "format": "bestaudio/best",
-                "postprocessors": [{
+    if is_audio:
+        ydl_opts = {
+            "outtmpl": "downloads/%(title).50s.%(ext)s",
+            "format": "bestaudio/best",
+            "postprocessors": [
+                {
                     "key": "FFmpegExtractAudio",
                     "preferredcodec": "mp3",
                     "preferredquality": "192",
-                }],
-                "quiet": True,
-                "no_warnings": True,
-            }
-        else:
-            ydl_opts = {
-                "outtmpl": "downloads/%(title).50s.%(ext)s",
-                "format": "best[ext=mp4]/best",
-                "quiet": True,
-                "no_warnings": True,
-            }
+                }
+            ],
+            "quiet": True,
+            "no_warnings": True,
+        }
+    else:
+        ydl_opts = {
+            "outtmpl": "downloads/%(title).50s.%(ext)s",
+            "format": "best[ext=mp4]/best",
+            "quiet": True,
+            "no_warnings": True,
+        }
 
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            filename = ydl.prepare_filename(info)
-            base = os.path.splitext(filename)[0]
-            files = glob.glob(f"{glob.escape(base)}.*")
-            file_path = files[0] if files else filename
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(url, download=True)
+        filename = ydl.prepare_filename(info)
+        base = os.path.splitext(filename)[0]
+        files = glob.glob(f"{glob.escape(base)}.*")
+        file_path = files[0] if files else filename
+        title = info.get("title", "File")
+        return file_path, title
 
-        title = info.get("title", "Music")
 
-        await message.edit_text("📤 **دانلود شد! در حال ارسال...**")
+# اجرای عملیات دانلود و ارسال بدون هنگ کردن ربات
+async def download_and_send(client, message, query: str, is_audio: bool = False):
+    try:
+        await message.edit_text("⏳ **در حال جستجو و دانلود... لطفاً شکیبا باشید.**")
+    except Exception:
+        pass
+
+    file_path = None
+    try:
+        file_path, title = await asyncio.to_thread(run_yt_download, query, is_audio)
+
+        if not file_path or not os.path.exists(file_path):
+            await message.edit_text("❌ **نتیجه‌ای برای جستجوی شما یافت نشد!**")
+            return
+
+        try:
+            await message.edit_text("📤 **دانلود با موفقیت انجام شد! در حال آپلود...**")
+        except Exception:
+            pass
 
         if is_audio or file_path.endswith(".mp3"):
             await message.reply_audio(
                 audio=file_path,
-                title=title,
+                title=title[:50],
                 caption=f"🎵 **{title}**",
             )
         elif file_path.endswith((".mp4", ".mkv", ".mov", ".webm")):
@@ -139,18 +190,26 @@ async def download_and_send(client, message, query, is_audio=False):
                 caption=f"📁 **{title}**",
             )
 
-        # حذف فایل موقت و پیام دستور
-        if file_path and os.path.exists(file_path):
-            os.remove(file_path)
-        await message.delete()
+        try:
+            await message.delete()
+        except Exception:
+            pass
 
     except Exception as e:
+        try:
+            await message.edit_text(f"❌ **خطا در دریافت:**\n`{str(e)[:150]}`")
+        except Exception:
+            pass
+    finally:
+        # پاکسازی همیشگی فایل از حافظه سرور
         if file_path and os.path.exists(file_path):
-            os.remove(file_path)
-        await message.edit_text(f"❌ **خطا:**\n`{str(e)[:200]}`")
+            try:
+                os.remove(file_path)
+            except Exception:
+                pass
 
 
-# تسک پس‌زمینه اسم ساعتی
+# تسک پس‌زمینه برای اسم ساعتی
 async def auto_time_name_task():
     global TIME_NAME_ACTIVE
     last_set_time = ""
@@ -170,6 +229,7 @@ async def auto_time_name_task():
         await asyncio.sleep(15)
 
 
+# دریافت دستورات
 @app.on_message(filters.me & ~filters.forwarded)
 async def handle_commands(client, message):
     global TIME_NAME_ACTIVE
@@ -179,46 +239,55 @@ async def handle_commands(client, message):
     text = message.text.strip()
     lower_text = text.lower()
 
-    # ─── ۱. پنل راهنما ───
+    # ۱. دستور پنل
     if lower_text in ["پنل", "منو", "panel", ".panel"]:
         panel_msg = (
             "╭───「 👑 **𝗞𝗛𝗔𝗡 𝗦𝗘𝗟𝗙 𝗣𝗔𝗡𝗘𝗟** 」\n"
             "│\n"
             "├ 🎵 **بخش دانلود:**\n"
-            "│ • `اهنگ شادمهر` ➔ جستجو و دانلود آهنگ\n"
-            "│ • `ویدیو کلیپ` ➔ جستجو و دانلود ویدیو\n"
-            "│ • `دانلود لینک` ➔ دانلود از لینک مستقیم\n"
+            "│ • `اهنگ شادمهر` ➔ جستجو و دانلود موزیک\n"
+            "│ • `ویدیو کلیپ` ➔ دانلود ویدیو از یوتیوب\n"
+            "│ • `دانلود لینک` ➔ دانلود مستقیم از لینک\n"
             "│\n"
             "├ ⏱ **بخش زمان و تاریخ:**\n"
             "│ • `ساعت` ➔ ساعت ایران و آمریکا\n"
             "│ • `تاریخ` ➔ تاریخ شمسی و میلادی\n"
-            "│ • `روز` ➔ نمایش روز هفته\n"
-            "│ • `زمان` ➔ وضعیت کامل زمان\n"
+            "│ • `روز` ➔ روز هفته\n"
+            "│ • `زمان` ➔ گزارش کامل ساعت و تقویم\n"
             "│\n"
             "├ 👤 **بخش اسم ساعتی:**\n"
-            "│ • `تایم فعال` ➔ فعال‌سازی (𝗞𝗛𝗔𝗡 ┃ 𝟏𝟒:𝟑𝟎)\n"
-            "│ • `تایم خاموش` ➔ بازگشت به (𝗞𝗛𝗔𝗡)\n"
+            "│ • `تایم فعال` ➔ روشن (𝗞𝗛𝗔𝗡 ┃ 𝟏𝟒:𝟑𝟎)\n"
+            "│ • `تایم خاموش` ➔ خاموش (𝗞𝗛𝗔𝗡)\n"
             "│\n"
             "╰───「 ⚡️ 𝑆𝑡𝑎𝑡𝑢𝑠: 𝑂𝑛𝑙𝑖𝑛𝑒 」"
         )
         await message.edit_text(panel_msg)
 
-    # ─── ۲. دانلود آهنگ با اسم ───
+    # ۲. دانلود موزیک با اسم
     elif lower_text.startswith("اهنگ ") or lower_text.startswith("آهنگ "):
-        query = text.split(maxsplit=1)[1].strip()
-        await download_and_send(client, message, query, is_audio=True)
+        parts = text.split(maxsplit=1)
+        if len(parts) < 2 or not parts[1].strip():
+            await message.edit_text("❌ **لطفاً نام آهنگ یا خواننده را وارد کنید.**\nمثال: `اهنگ شادمهر تقدیر`")
+            return
+        await download_and_send(client, message, parts[1].strip(), is_audio=True)
 
-    # ─── ۳. دانلود ویدیو با اسم ───
+    # ۳. دانلود ویدیو با اسم
     elif lower_text.startswith("ویدیو "):
-        query = text.split(maxsplit=1)[1].strip()
-        await download_and_send(client, message, query, is_audio=False)
+        parts = text.split(maxsplit=1)
+        if len(parts) < 2 or not parts[1].strip():
+            await message.edit_text("❌ **لطفاً عنوان ویدیو را وارد کنید.**\nمثال: `ویدیو آموزش پایتون`")
+            return
+        await download_and_send(client, message, parts[1].strip(), is_audio=False)
 
-    # ─── ۴. دانلود از لینک ───
+    # ۴. دانلود مستقیم از لینک
     elif lower_text.startswith("دانلود ") or lower_text.startswith("dl "):
-        query = text.split(maxsplit=1)[1].strip()
-        await download_and_send(client, message, query, is_audio=False)
+        parts = text.split(maxsplit=1)
+        if len(parts) < 2 or not parts[1].strip():
+            await message.edit_text("❌ **لطفاً لینک مستقیم را وارد کنید.**")
+            return
+        await download_and_send(client, message, parts[1].strip(), is_audio=False)
 
-    # ─── ۵. فعال‌سازی اسم ساعتی ───
+    # ۵. فعال‌سازی اسم ساعتی
     elif text in ["تایم فعال", "تایم روشن"]:
         TIME_NAME_ACTIVE = True
         current_time = datetime.now(IRAN_TZ).strftime("%H:%M")
@@ -227,15 +296,13 @@ async def handle_commands(client, message):
         await app.update_profile(first_name=new_name)
         await message.edit_text(f"✅ **اسم ساعتی فعال شد:**\n`{new_name}`")
 
-    # ─── ۶. خاموش کردن اسم ساعتی ───
+    # ۶. غیرفعال‌سازی اسم ساعتی
     elif text in ["تایم خاموش", "تایم غیرفعال"]:
         TIME_NAME_ACTIVE = False
         await app.update_profile(first_name=DEFAULT_NAME)
-        await message.edit_text(
-            f"❌ **اسم ساعتی خاموش شد.**\nنام به حالت اولیه برگشت: `{DEFAULT_NAME}`"
-        )
+        await message.edit_text(f"❌ **اسم ساعتی خاموش شد.**\nنام به حالت اولیه برگشت: `{DEFAULT_NAME}`")
 
-    # ─── ۷. ساعت ───
+    # ۷. دستور ساعت
     elif lower_text in ["ساعت", "/ساعت", "time", ".time"]:
         iran_time = datetime.now(IRAN_TZ).strftime("%H:%M:%S")
         us_time = datetime.now(US_TZ).strftime("%H:%M:%S")
@@ -247,7 +314,7 @@ async def handle_commands(client, message):
         )
         await message.edit_text(msg)
 
-    # ─── ۸. تاریخ ───
+    # ۸. دستور تاریخ
     elif lower_text in ["تاریخ", "/تاریخ", "date", ".date"]:
         now_iran = datetime.now(IRAN_TZ)
         now_us = datetime.now(US_TZ)
@@ -263,7 +330,7 @@ async def handle_commands(client, message):
         )
         await message.edit_text(msg)
 
-    # ─── ۹. روز هفته ───
+    # ۹. دستور روز
     elif lower_text in ["روز", "/روز", "day", ".day"]:
         iran_day = PERSIAN_WEEKDAYS.get(datetime.now(IRAN_TZ).strftime("%A"), "")
         us_day = datetime.now(US_TZ).strftime("%A")
@@ -275,7 +342,7 @@ async def handle_commands(client, message):
         )
         await message.edit_text(msg)
 
-    # ─── ۱۰. زمان کامل ───
+    # ۱۰. وضعیت کامل زمان
     elif lower_text in ["زمان", "/زمان", "now", ".now", "info"]:
         now_iran = datetime.now(IRAN_TZ)
         now_us = datetime.now(US_TZ)
@@ -301,7 +368,7 @@ async def handle_commands(client, message):
 async def main():
     await app.start()
     asyncio.create_task(auto_time_name_task())
-    print("سلف‌بات خان با موفقیت فعال شد...")
+    print("سلف‌بات خان با موفقیت و بدون باگ فعال شد...")
     await idle()
     await app.stop()
 
