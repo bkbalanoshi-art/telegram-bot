@@ -16,22 +16,13 @@ app = Client(
     session_string=session_string
 )
 
-# 👇 اینجا User ID خودت رو بذار
-MY_USER_ID = 123456789
+MY_USER_ID = 8989331210  # عوضش کن با User ID خودت
 
-# فونت‌های تیره و سنگین
 HEAVY_FONTS = [
-    "𝐤𝐡𝐚𝐧",
-    "𝗸𝗵𝗮𝗻",
-    "𝙠𝙝𝙖𝙣",
-    "ⓀⒽⒶⓃ",
-    "🅺🅷🅰🅽",
-    "🄺🄷🄰🄽",
-    "ᵏʰᵃⁿ",
-    "ᴷᴴᴬᴺ",
+    "𝐤𝐡𝐚𝐧", "𝗸𝗵𝗮𝗻", "𝙠𝙝𝙖𝙣", "ⓀⒽⒶⓃ",
+    "🅺🅷🅰🅽", "🄺🄷🄰🄽", "ᵏʰᵃⁿ", "ᴷᴴᴬᴺ",
 ]
 
-# تگ‌ها
 TAGS = [
     "khan", "Khan", "KHAN", "خان", "خانم",
     "Mr.Khan", "K H A N", "★khan★", "『khan』",
@@ -39,7 +30,6 @@ TAGS = [
     "✦khan", "khan✦", "►khan", "khan◄",
 ]
 
-# قالب‌های پیام
 TIME_TEMPLATES = [
     "{tag} ⏰ {time}",
     "{tag} | {time}",
@@ -63,7 +53,6 @@ TIME_TEMPLATES = [
     "▰▰▰ {tag} ▰▰▰\n          {time}",
 ]
 
-# روزهای هفته فارسی
 PERSIAN_WEEKDAYS = {
     "Saturday": "شنبه",
     "Sunday": "یکشنبه",
@@ -74,7 +63,6 @@ PERSIAN_WEEKDAYS = {
     "Friday": "جمعه",
 }
 
-# ماه‌های فارسی
 PERSIAN_MONTHS = {
     1: "فروردین", 2: "اردیبهشت", 3: "خرداد",
     4: "تیر", 5: "مرداد", 6: "شهریور",
@@ -82,10 +70,9 @@ PERSIAN_MONTHS = {
     10: "دی", 11: "بهمن", 12: "اسفند",
 }
 
-# مناطق زمانی
 IRAN_TZ = timezone(timedelta(hours=3, minutes=30))
-US_EASTERN = timezone(timedelta(hours=-5))  # EST
-US_PACIFIC = timezone(timedelta(hours=-8))  # PST
+US_EASTERN = timezone(timedelta(hours=-5))
+US_PACIFIC = timezone(timedelta(hours=-8))
 
 last_sent_hour = -1
 last_sent_minute = -1
@@ -110,7 +97,6 @@ def get_random_style():
 
 
 def to_persian_date(dt):
-    """تبدیل تاریخ میلادی به شمسی (ساده)"""
     gy = dt.year
     gm = dt.month
     gd = dt.day
@@ -140,8 +126,6 @@ def get_persian_date_text():
     return f"{weekday} {jd} {month_name} {jy}"
 
 
-# ============== پنل اصلی ==============
-
 def get_main_panel():
     keyboard = [
         [InlineKeyboardButton("⏰ ساعت ایران", callback_data="time_iran")],
@@ -157,8 +141,6 @@ def get_main_panel():
     ]
     return InlineKeyboardMarkup(keyboard)
 
-
-# ============== حلقه ساعت خودکار ==============
 
 async def send_time_message():
     global last_sent_hour, last_sent_minute
@@ -183,8 +165,6 @@ async def send_time_message():
         await asyncio.sleep(30)
 
 
-# ============== هندل پیام ==============
-
 @app.on_message(filters.private)
 async def handle_message(client, message: Message):
     try:
@@ -199,7 +179,6 @@ async def handle_message(client, message: Message):
 
         text = message.text.strip()
 
-        # باز کردن پنل
         if text in ["پنل", "panel", "/panel", "منو", "menu"]:
             await message.reply(
                 "╔════════════════════════╗\n"
@@ -209,7 +188,6 @@ async def handle_message(client, message: Message):
                 reply_markup=get_main_panel()
             )
 
-        # دستورات متنی هم کار کنن
         elif "ساعت" in text:
             now = get_iran_time()
             time_str = now.strftime("%H:%M:%S")
@@ -226,8 +204,6 @@ async def handle_message(client, message: Message):
     except Exception as e:
         print(f"Error: {e}")
 
-
-# ============== هندل دکمه‌های پنل ==============
 
 @app.on_callback_query()
 async def handle_callback(client, callback_query):
