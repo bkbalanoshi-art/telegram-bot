@@ -15,468 +15,176 @@ from pyrogram.errors import (
     SessionPasswordNeeded,
 )
 
-# لود ابزار FFMPEG برای دانلودر
+# تنظیمات اصلی
 static_ffmpeg.add_paths()
-
-# متغیرهای محیطی Railway
 API_ID = int(os.environ.get("API_ID", 0))
 API_HASH = os.environ.get("API_HASH", "")
 SESSION_STRING = os.environ.get("SESSION_STRING", "")
-
-# فایل ذخیره دائمی سشن‌های مشتریان
 SESSIONS_FILE = "sessions.json"
 
-# حافظه سیستم
-active_clients = {}  # کلاینت‌های فعال {user_id: client_instance}
-pending_logins = {}  # فرایندهای لاگین در حال انتظار
+active_clients = {}  # {user_id: client_instance}
+pending_logins = {}  # {chat_id: login_data}
 
-# مناطق زمانی و تنظیمات اسم ساعتی
 IRAN_TZ = ZoneInfo("Asia/Tehran")
 US_TZ = ZoneInfo("America/New_York")
 DEFAULT_NAME = "𝗞𝗛𝗔𝗡"
 TIME_NAME_ACTIVE = False
 
-# اعداد درشت برای اسم ساعتی
-BOLD_DIGITS = {
-    "0": "𝟎", "1": "𝟏", "2": "𝟐", "3": "𝟑", "4": "𝟒",
-    "5": "𝟓", "6": "𝟔", "7": "𝟕", "8": "𝟖", "9": "𝟗", ":": ":",
-}
-
-def to_bold_time(time_str: str) -> str:
-    return "".join(BOLD_DIGITS.get(ch, ch) for ch in time_str)
-
-PERSIAN_MONTHS = [
-    "فروردین", "اردیبهشت", "خرداد", "تیر", "مرداد", "شهریور",
-    "مهر", "آبان", "آذر", "دی", "بهمن", "اسفند",
-]
-
-PERSIAN_WEEKDAYS = {
-    "Saturday": "شنبه", "Sunday": "یکشنبه", "Monday": "دوشنبه",
-    "Tuesday": "سه‌شنبه", "Wednesday": "چهارشنبه",
-    "Thursday": "پنج‌شنبه", "Friday": "جمعه",
-}
-
-def gregorian_to_jalali(gy, gm, gd):
-    g_d_m = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334]
-    gy2 = gy + 1 if gm > 2 else gy
-    days = (
-        355666 + (365 * gy) + ((gy2 + 3) // 4) - ((gy2 + 99) // 100)
-        + ((gy2 + 399) // 400) + gd + g_d_m[gm - 1]
-    )
-    jy = -1595 + (33 * (days // 12053))
-    days %= 12053
-    jy += 4 * (days // 1461)
-    days %= 1461
-    if days > 365:
-        jy += (days - 1) // 365
-        days = (days - 1) % 365
-    if days < 186:
-        jm = 1 + (days // 31)
-        jd = 1 + (days % 31)
-    else:
-        jm = 7 + ((days - 186) // 30)
-        jd = 1 + ((days - 186) % 30)
-    return jy, jm, jd
-
-# ─── توابع مدیریت ذخیره‌سازی سشن‌ها ───
+# --- توابع کمکی ---
 
 def load_saved_sessions():
     if os.path.exists(SESSIONS_FILE):
         try:
-            with open(SESSIONS_FILE, "r", encoding="utf-8") as f:
+            with open(SESSIONS_FILE, "r") as f:
                 return json.load(f)
-        except Exception:
-            return {}
+        except: return {}
     return {}
 
-def save_session_to_file(user_id: str, session_str: str):
+def save_session_to_file(user_id, session_str):
     data = load_saved_sessions()
     data[str(user_id)] = session_str
-    with open(SESSIONS_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=4)
+    with open(SESSIONS_FILE, "w") as f:
+        json.dump(data, f)
 
-# ─── تابع دانلودر غیربلوکه‌کننده ───
-
-def run_yt_download(query: str, is_audio: bool):
+def run_yt_download(query, is_audio):
     os.makedirs("downloads", exist_ok=True)
-    if query.startswith(("http://", "https://")):
-        url = query
-    else:
-        search_query = f"ytsearch1:{query}"
-        with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True}) as ydl:
-            info = ydl.extract_info(search_query, download=False)
-            if not info or "entries" not in info or not info["entries"]:
-                return None, None
-            url = info["entries"][0]["webpage_url"]
-
+    ydl_opts = {
+        'format': 'bestaudio/best' if is_audio else 'best[ext=mp4]/best',
+        'outtmpl': 'downloads/%(title).50s.%(ext)s',
+        'quiet': True, 'no_warnings': True,
+    }
     if is_audio:
-        ydl_opts = {
-            "outtmpl": "downloads/%(title).50s.%(ext)s",
-            "format": "bestaudio/best",
-            "postprocessors": [{
-                "key": "FFmpegExtractAudio",
-                "preferredcodec": "mp3",
-                "preferredquality": "192",
-            }],
-            "quiet": True,
-            "no_warnings": True,
-        }
-    else:
-        ydl_opts = {
-            "outtmpl": "downloads/%(title).50s.%(ext)s",
-            "format": "best[ext=mp4]/best",
-            "quiet": True,
-            "no_warnings": True,
-        }
-
+        ydl_opts['postprocessors'] = [{'key': 'FFmpegExtractAudio','preferredcodec': 'mp3','preferredquality': '192'}]
+    
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(url, download=True)
-        filename = ydl.prepare_filename(info)
-        base = os.path.splitext(filename)[0]
-        files = glob.glob(f"{glob.escape(base)}.*")
-        file_path = files[0] if files else filename
-        title = info.get("title", "File")
-        return file_path, title
+        q = query if query.startswith("http") else f"ytsearch1:{query}"
+        info = ydl.extract_info(q, download=True)
+        filename = ydl.prepare_filename(info['entries'][0] if 'entries' in info else info)
+        if is_audio: filename = os.path.splitext(filename)[0] + ".mp3"
+        return filename, info.get('title', 'File')
 
-async def download_and_send(client, message, query: str, is_audio: bool = False):
+async def download_and_send(client, message, query, is_audio=False):
+    await message.edit_text("⏳ **در حال دانلود...**")
     try:
-        await message.edit_text("⏳ **در حال جستجو و دانلود... لطفاً شکیبا باشید.**")
-    except Exception:
-        pass
-
-    file_path = None
-    try:
-        file_path, title = await asyncio.to_thread(run_yt_download, query, is_audio)
-
-        if not file_path or not os.path.exists(file_path):
-            await message.edit_text("❌ **نتیجه‌ای برای جستجوی شما یافت نشد!**")
-            return
-
-        try:
-            await message.edit_text("📤 **دانلود با موفقیت انجام شد! در حال آپلود...**")
-        except Exception:
-            pass
-
-        if is_audio or file_path.endswith(".mp3"):
-            await message.reply_audio(audio=file_path, title=title[:50], caption=f"🎵 **{title}**")
-        elif file_path.endswith((".mp4", ".mkv", ".mov", ".webm")):
-            await message.reply_video(video=file_path, caption=f"🎬 **{title}**")
-        else:
-            await message.reply_document(document=file_path, caption=f"📁 **{title}**")
-
-        try:
-            await message.delete()
-        except Exception:
-            pass
-
+        path, title = await asyncio.to_thread(run_yt_download, query, is_audio)
+        await message.edit_text("📤 **در حال آپلود...**")
+        if is_audio: await message.reply_audio(path, caption=f"🎵 **{title}**")
+        else: await message.reply_video(path, caption=f"🎬 **{title}**")
+        await message.delete()
+        if os.path.exists(path): os.remove(path)
     except Exception as e:
-        try:
-            await message.edit_text(f"❌ **خطا در دریافت:**\n`{str(e)[:150]}`")
-        except Exception:
-            pass
-    finally:
-        if file_path and os.path.exists(file_path):
-            try:
-                os.remove(file_path)
-            except Exception:
-                pass
+        await message.edit_text(f"❌ خطا: {e}")
 
-# ─── هندلر جامع دستورات (قابل اجرا برای صاحب‌بات و تمام اکانت‌های مشتری) ───
+# --- هندلر دستورات سلف‌بات ---
 
 async def handle_commands(client, message):
-    global TIME_NAME_ACTIVE
-    if not message.text:
+    if not message.text or not message.from_user or not message.from_user.is_self:
         return
-
+    
     text = message.text.strip()
-    lower_text = text.lower()
+    l_text = text.lower()
 
-    # ۱. پنل راهنما
-    if lower_text in ["پنل", "منو", "panel", ".panel"]:
-        panel_msg = (
-            "╭───「 👑 **𝗞𝗛𝗔𝗡 𝗦𝗘𝗟𝗙 𝗣𝗔𝗡𝗘𝗟** 」\n"
-            "│\n"
-            "├ 🎵 **بخش دانلود:**\n"
-            "│ • `اهنگ شادمهر` ➔ جستجو و دانلود موزیک\n"
-            "│ • `ویدیو کلیپ` ➔ دانلود ویدیو از یوتیوب\n"
-            "│ • `دانلود لینک` ➔ دانلود مستقیم از لینک\n"
-            "│\n"
-            "├ ⏱ **بخش زمان و تاریخ:**\n"
-            "│ • `ساعت` ➔ ساعت ایران و آمریکا\n"
-            "│ • `تاریخ` ➔ تاریخ شمسی و میلادی\n"
-            "│ • `روز` ➔ روز هفته\n"
-            "│ • `زمان` ➔ گزارش کامل ساعت و تقویم\n"
-            "│\n"
-            "├ 👤 **بخش اسم ساعتی:**\n"
-            "│ • `تایم فعال` ➔ روشن (𝗞𝗛𝗔𝗡 ┃ 𝟏𝟒:𝟑𝟎)\n"
-            "│ • `تایم خاموش` ➔ خاموش (𝗞𝗛𝗔𝗡)\n"
-            "│\n"
-            "╰───「 ⚡️ 𝑆𝑡𝑎𝑡𝑢𝑠: 𝑂𝑛𝑙𝑖𝑛𝑒 」"
-        )
-        await message.edit_text(panel_msg)
+    if l_text in ["پنل", "panel"]:
+        await message.edit_text("╭───「 👑 **𝗞𝗛𝗔𝗡 𝗦𝗘𝗟𝗙** 」\n│\n├ 🎵 `اهنگ <اسم>`\n├ 🎬 `ویدیو <اسم>`\n├ ⏱ `ساعت` | `تاریخ` | `زمان`\n├ 👤 `تایم فعال` | `تایم خاموش`\n╰──────────")
 
-    # ۲. دانلود موزیک با اسم
-    elif lower_text.startswith("اهنگ ") or lower_text.startswith("آهنگ "):
-        parts = text.split(maxsplit=1)
-        if len(parts) < 2 or not parts[1].strip():
-            await message.edit_text("❌ **لطفاً نام آهنگ یا خواننده را وارد کنید.**\nمثال: `اهنگ شادمهر تقدیر`")
-            return
-        await download_and_send(client, message, parts[1].strip(), is_audio=True)
+    elif l_text.startswith("اهنگ "):
+        await download_and_send(client, message, text[5:], True)
+    
+    elif l_text.startswith("ویدیو "):
+        await download_and_send(client, message, text[6:], False)
 
-    # ۳. دانلود ویدیو با اسم
-    elif lower_text.startswith("ویدیو "):
-        parts = text.split(maxsplit=1)
-        if len(parts) < 2 or not parts[1].strip():
-            await message.edit_text("❌ **لطفاً عنوان ویدیو را وارد کنید.**")
-            return
-        await download_and_send(client, message, parts[1].strip(), is_audio=False)
+    elif l_text == "ساعت":
+        t = datetime.now(IRAN_TZ).strftime("%H:%M:%S")
+        await message.edit_text(f"🇮🇷 ساعت ایران: `{t}`")
 
-    # ۴. دانلود مستقیم از لینک
-    elif lower_text.startswith("دانلود ") or lower_text.startswith("dl "):
-        parts = text.split(maxsplit=1)
-        if len(parts) < 2 or not parts[1].strip():
-            await message.edit_text("❌ **لطفاً لینک مستقیم را وارد کنید.**")
-            return
-        await download_and_send(client, message, parts[1].strip(), is_audio=False)
-
-    # ۵. اسم ساعتی
-    elif text in ["تایم فعال", "تایم روشن"]:
+    elif text == "تایم فعال":
+        global TIME_NAME_ACTIVE
         TIME_NAME_ACTIVE = True
-        current_time = datetime.now(IRAN_TZ).strftime("%H:%M")
-        bold_time = to_bold_time(current_time)
-        new_name = f"{DEFAULT_NAME} ┃ {bold_time}"
-        await client.update_profile(first_name=new_name)
-        await message.edit_text(f"✅ **اسم ساعتی فعال شد:**\n`{new_name}`")
+        await message.edit_text("✅ اسم ساعتی فعال شد.")
 
-    elif text in ["تایم خاموش", "تایم غیرفعال"]:
-        TIME_NAME_ACTIVE = False
-        await client.update_profile(first_name=DEFAULT_NAME)
-        await message.edit_text(f"❌ **اسم ساعتی خاموش شد.**\nنام به حالت اولیه برگشت: `{DEFAULT_NAME}`")
+# --- هندلر مدیریت مشتریان (فقط برای صاحب بات) ---
 
-    # ۶. زمان و تاریخ
-    elif lower_text in ["ساعت", "/ساعت", "time", ".time"]:
-        iran_time = datetime.now(IRAN_TZ).strftime("%H:%M:%S")
-        us_time = datetime.now(US_TZ).strftime("%H:%M:%S")
-        msg = (
-            "⏰ **ساعت رسمی:**\n"
-            "━━━━━━━━━━━━━━\n"
-            f"🇮🇷 **ایران (تهران):** `{iran_time}`\n"
-            f"🇺🇸 **آمریکا (نیویورک):** `{us_time}`"
-        )
-        await message.edit_text(msg)
-
-    elif lower_text in ["تاریخ", "/تاریخ", "date", ".date"]:
-        now_iran = datetime.now(IRAN_TZ)
-        now_us = datetime.now(US_TZ)
-        jy, jm, jd = gregorian_to_jalali(now_iran.year, now_iran.month, now_iran.day)
-        shamsi_str = f"{jy}/{jm:02d}/{jd:02d}"
-        month_name = PERSIAN_MONTHS[jm - 1]
-        gregorian_str = now_us.strftime("%Y-%m-%d")
-        msg = (
-            "📅 **تاریخ امروز:**\n"
-            "━━━━━━━━━━━━━━\n"
-            f"🇮🇷 **شمسی:** `{shamsi_str}` ({jd} {month_name})\n"
-            f"🇺🇸 **میلادی:** `{gregorian_str}`"
-        )
-        await message.edit_text(msg)
-
-    elif lower_text in ["روز", "/روز", "day", ".day"]:
-        iran_day = PERSIAN_WEEKDAYS.get(datetime.now(IRAN_TZ).strftime("%A"), "")
-        us_day = datetime.now(US_TZ).strftime("%A")
-        msg = (
-            "🗓 **امروز چندشنبه است؟**\n"
-            "━━━━━━━━━━━━━━\n"
-            f"🇮🇷 **ایران:** `{iran_day}`\n"
-            f"🇺🇸 **آمریکا:** `{us_day}`"
-        )
-        await message.edit_text(msg)
-
-    elif lower_text in ["زمان", "/زمان", "now", ".now", "info"]:
-        now_iran = datetime.now(IRAN_TZ)
-        now_us = datetime.now(US_TZ)
-        iran_time = now_iran.strftime("%H:%M:%S")
-        us_time = now_us.strftime("%H:%M:%S")
-        jy, jm, jd = gregorian_to_jalali(now_iran.year, now_iran.month, now_iran.day)
-        shamsi_full = f"{jd} {PERSIAN_MONTHS[jm - 1]} {jy}"
-        iran_day = PERSIAN_WEEKDAYS.get(now_iran.strftime("%A"), "")
-        msg = (
-            "⏱ **وضعیت کامل زمان و تاریخ:**\n"
-            "━━━━━━━━━━━━━━━━━\n"
-            f"🗓 **امروز:** `{iran_day}`\n"
-            f"📅 **تاریخ شمسی:** `{shamsi_full}`\n"
-            f"📆 **تاریخ میلادی:** `{now_iran.strftime('%Y/%m/%d')}`\n"
-            "─────────────────\n"
-            f"🇮🇷 **ساعت ایران:** `{iran_time}`\n"
-            f"🇺🇸 **ساعت آمریکا:** `{us_time}`\n"
-            "━━━━━━━━━━━━━━━━━"
-        )
-        await message.edit_text(msg)
-
-# ─── سیستم مدیریت مشتریان (فقط مخصوص اکانت اصلی شما) ───
-
-async def handle_master_commands(client, message):
-    if not message.text:
+async def handle_master(client, message):
+    if not message.text or not message.from_user or not message.from_user.is_self:
         return
-
+    
     text = message.text.strip()
 
-    # ۱. دستور لاگین (ریپلای روی شماره تلفن)
     if message.reply_to_message and text == "لاگین":
-        phone_number = message.reply_to_message.text.strip()
-        await message.edit_text(f"⏳ **در حال ارسال کد تایید به شماره:** `{phone_number}`...")
-
-        temp_client = Client(":memory:", api_id=API_ID, api_hash=API_HASH)
-        await temp_client.connect()
-
+        phone = message.reply_to_message.text.strip()
+        await message.edit_text(f"⏳ ارسال کد برای `{phone}`...")
+        tmp = Client(":memory:", API_ID, API_HASH)
+        await tmp.connect()
         try:
-            sent_code = await temp_client.send_code(phone_number)
-            pending_logins[message.chat.id] = {
-                "phone": phone_number,
-                "hash": sent_code.phone_code_hash,
-                "client": temp_client,
-            }
-            await message.edit_text(
-                f"✅ **کد تایید برای شماره `{phone_number}` فرستاده شد.**\n\n"
-                "📌 **مرحله بعدی:** به محض اینکه مشتری کد را داد، روی پیام کد ریپلای کنید و بنویسید: `تایید`"
-            )
+            sent_code = await tmp.send_code(phone)
+            pending_logins[message.chat.id] = {"phone": phone, "hash": sent_code.phone_code_hash, "client": tmp}
+            await message.edit_text("✅ کد ارسال شد. روی کد ریپلای کنید و بگویید: `تایید`")
         except Exception as e:
-            await temp_client.disconnect()
-            await message.edit_text(f"❌ **خطا در ارسال کد:**\n`{str(e)}`")
+            await message.edit_text(f"❌ خطا: {e}")
 
-    # ۲. دستور تایید (ریپلای روی کد تایید ۵ رقمی)
     elif message.reply_to_message and text == "تایید":
-        login_data = pending_logins.get(message.chat.id)
-        if not login_data:
-            await message.edit_text("❌ **ابتدا باید روی شماره تلفن ریپلای کرده و کلمه `لاگین` را بفرستید.**")
-            return
-
-        otp_code = message.reply_to_message.text.strip()
-        temp_client = login_data["client"]
-
-        await message.edit_text("⏳ **در حال احراز هویت و فعال‌سازی سلف‌بات...**")
-
+        data = pending_logins.get(message.chat.id)
+        if not data: return
+        code = message.reply_to_message.text.strip()
+        await message.edit_text("⏳ در حال فعال‌سازی...")
         try:
-            await temp_client.sign_in(login_data["phone"], login_data["hash"], otp_code)
-            session_str = await temp_client.export_session_string()
-            user_info = await temp_client.get_me()
-            await temp_client.disconnect()
-
-            # راه اندازی کلاینت جدید و ثبت آن
-            new_sub_app = Client(
-                name=f"sub_{user_info.id}",
-                api_id=API_ID,
-                api_hash=API_HASH,
-                session_string=session_str,
-            )
-            new_sub_app.add_handler(
-                MessageHandler(handle_commands, filters.me & ~filters.forwarded)
-            )
-            await new_sub_app.start()
-
-            active_clients[str(user_info.id)] = new_sub_app
-            save_session_to_file(user_info.id, session_str)
-
+            await data["client"].sign_in(data["phone"], data["hash"], code)
+            s_str = await data["client"].export_session_string()
+            me = await data["client"].get_me()
+            
+            # استارت سلف جدید
+            new_cli = Client(f"sub_{me.id}", API_ID, API_HASH, session_string=s_str)
+            new_cli.add_handler(MessageHandler(handle_commands))
+            await new_cli.start()
+            
+            active_clients[str(me.id)] = new_cli
+            save_session_to_file(me.id, s_str)
+            await message.edit_text(f"🎉 سلف‌بات برای `{me.first_name}` فعال شد!")
             del pending_logins[message.chat.id]
-
-            await message.edit_text(
-                f"🎉 **سلف‌بات با موفقیت فعال شد!**\n\n"
-                f"👤 **کاربر:** `{user_info.first_name}`\n"
-                f"🆔 **آیدی عددی:** `{user_info.id}`\n"
-                f"📊 **تعداد کل کاربران فعال:** `{len(active_clients)}`"
-            )
-
-        except PhoneCodeInvalid:
-            await message.edit_text("❌ **کد وارد شده اشتباه است.**")
-        except PhoneCodeExpired:
-            await message.edit_text("❌ **کد منقضی شده است. دوباره `لاگین` بزنید.**")
-        except SessionPasswordNeeded:
-            await message.edit_text("🔐 **این اکانت دارای تایید دو مرحله‌ای (Password) است و ثبت نشد.**")
         except Exception as e:
-            await message.edit_text(f"❌ **خطا در فعال‌سازی:**\n`{str(e)}`")
+            await message.edit_text(f"❌ خطا: {e}")
 
-    # ۳. آمار کاربران
     elif text == "آمار":
-        count = len(active_clients)
-        msg = (
-            "📊 **پنل آمار پلتفرم سلف‌بات:**\n"
-            "━━━━━━━━━━━━━━━━━\n"
-            f"👑 **مدیر اصلی:** آنلاین\n"
-            f"👥 **تعداد سلف‌بات‌های فعال:** `{count}` اکانت\n"
-            "━━━━━━━━━━━━━━━━━"
-        )
-        await message.edit_text(msg)
+        await message.edit_text(f"📊 تعداد سلف‌بات‌های فعال: `{len(active_clients)}`")
 
-# ─── راه اندازی کلاینت‌های قبلی از فایل ذخیره ───
-
-async def spawn_saved_clients():
-    saved_sessions = load_saved_sessions()
-    for user_id, session_str in saved_sessions.items():
-        try:
-            sub_app = Client(
-                name=f"sub_{user_id}",
-                api_id=API_ID,
-                api_hash=API_HASH,
-                session_string=session_str,
-            )
-            sub_app.add_handler(
-                MessageHandler(handle_commands, filters.me & ~filters.forwarded)
-            )
-            await sub_app.start()
-            active_clients[str(user_id)] = sub_app
-            print(f"سلف‌بات کاربر {user_id} روشن شد.")
-        except Exception as e:
-            print(f"خطا در روشن کردن اکانت {user_id}: {e}")
-
-# تسک آپدیت اسم ساعتی اکانت اصلی
-async def auto_time_name_task(master_app):
-    global TIME_NAME_ACTIVE
-    last_set_time = ""
-    while True:
-        if TIME_NAME_ACTIVE:
-            try:
-                current_time = datetime.now(IRAN_TZ).strftime("%H:%M")
-                if current_time != last_set_time:
-                    bold_time = to_bold_time(current_time)
-                    new_name = f"{DEFAULT_NAME} ┃ {bold_time}"
-                    await master_app.update_profile(first_name=new_name)
-                    last_set_time = current_time
-            except FloodWait as e:
-                await asyncio.sleep(e.value)
-            except Exception as e:
-                print(f"Time Name Error: {e}")
-        await asyncio.sleep(15)
-
-# ─── اجرای برنامه اصلی ───
+# --- استارت‌آپ ---
 
 async def main():
-    # ۱. استارت اکانت اصلی (Master)
-    master_app = Client(
-        name="master_account",
-        api_id=API_ID,
-        api_hash=API_HASH,
-        session_string=SESSION_STRING,
-    )
+    print("در حال راه‌اندازی سلف‌بات اصلی...")
+    master = Client("master", API_ID, API_HASH, session_string=SESSION_STRING)
+    master.add_handler(MessageHandler(handle_commands))
+    master.add_handler(MessageHandler(handle_master))
+    
+    await master.start()
+    active_clients["master"] = master
+    
+    # لود سشن‌های قبلی
+    saved = load_saved_sessions()
+    for uid, s_str in saved.items():
+        try:
+            c = Client(f"sub_{uid}", API_ID, API_HASH, session_string=s_str)
+            c.add_handler(MessageHandler(handle_commands))
+            await c.start()
+            active_clients[uid] = c
+            print(f"اکانت {uid} متصل شد.")
+        except: print(f"خطا در اتصال اکانت {uid}")
 
-    # هندلرهای اکانت اصلی
-    master_app.add_handler(MessageHandler(handle_commands, filters.me & ~filters.forwarded))
-    master_app.add_handler(MessageHandler(handle_master_commands, filters.me & ~filters.forwarded))
+    print("پلتفرم با موفقیت روشن شد.")
+    
+    # تسک ساعت
+    async def time_task():
+        while True:
+            if TIME_NAME_ACTIVE:
+                try:
+                    now = datetime.now(IRAN_TZ).strftime("%H:%M")
+                    bold = "".join(["𝟎𝟏𝟐𝟑𝟒𝟓𝟔𝟕𝟖𝟗:"[int(c) if c!=':' else 10] for c in now])
+                    await master.update_profile(first_name=f"{DEFAULT_NAME} ┃ {bold}")
+                except: pass
+            await asyncio.sleep(60)
 
-    await master_app.start()
-    master_me = await master_app.get_me()
-    active_clients[str(master_me.id)] = master_app
-
-    print("اکانت اصلی با موفقیت روشن شد!")
-
-    # ۲. روشن کردن تمام سلف‌بات‌های مشتریان که قبلاً ذخیره شده‌اند
-    await spawn_saved_clients()
-
-    # ۳. شروع تسک اسم ساعتی
-    asyncio.create_task(auto_time_name_task(master_app))
-
-    print(f"پلتفرم سلف‌بات با {len(active_clients)} اکانت فعال روشن شد...")
+    asyncio.create_task(time_task())
     await idle()
-    await master_app.stop()
 
 if __name__ == "__main__":
-    app = Client("master_init")
-    app.run(main())
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(main())
