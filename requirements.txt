@@ -1,4 +1,4 @@
 pyrogram
 tgcrypto
-git+https://github.com/yt-dlp/yt-dlp.git
+yt-dlp
 static-ffmpeg
