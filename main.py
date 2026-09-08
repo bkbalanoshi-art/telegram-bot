@@ -7,24 +7,12 @@ from zoneinfo import ZoneInfo
 import static_ffmpeg
 import yt_dlp
 
-# ─── 🛠 رفع قطعی باگ Peer ID برای آیدی‌های جدید تلگرام (-1003...) ───
+# ─── 🛠 پچ اجباری آیدی‌های جدید تلگرام (-1003...) قبل از لود پایروگرام ───
 import pyrogram.utils
-
 pyrogram.utils.MIN_CHANNEL_ID = -100999999999999
 pyrogram.utils.MIN_CHAT_ID = -99999999999999
-
-def custom_get_peer_type(peer_id: int) -> str:
-    if isinstance(peer_id, int):
-        if peer_id < 0:
-            if str(peer_id).startswith("-100"):
-                return "channel"
-            return "chat"
-        elif peer_id > 0:
-            return "user"
-    raise ValueError(f"Peer id invalid: {peer_id}")
-
-pyrogram.utils.get_peer_type = custom_get_peer_type
-# ───────────────────────────────────────────────────────────────────
+pyrogram.utils.MAX_USER_ID = 99999999999999
+# ─────────────────────────────────────────────────────────────────
 
 from pyrogram import Client, filters, idle
 from pyrogram.errors import FloodWait
@@ -34,8 +22,8 @@ static_ffmpeg.add_paths()
 
 # تنظیمات اصلی Railway
 API_ID = int(os.environ.get("API_ID", 0))
-API_HASH = os.environ.get("API_HASH", "")
-SESSION_STRING = os.environ.get("SESSION_STRING", "")
+API_HASH = os.environ.get("API_HASH", "").strip()
+SESSION_STRING = os.environ.get("SESSION_STRING", "").strip()
 
 app = Client("khan_self", API_ID, API_HASH, session_string=SESSION_STRING)
 
@@ -58,6 +46,7 @@ MUSIC_PREFIXES = (
     "دانلود ریمیکس ", "اهنگ جدید ", "آهنگ جدید ", "صوتی "
 )
 
+# ─── تابع ارسال و ادیت امن ───
 async def safe_edit(client, message, text):
     try:
         await message.edit_text(text)
@@ -71,6 +60,7 @@ async def safe_edit(client, message, text):
         except Exception as e:
             print(f"Safe Edit Error: {e}")
 
+# ─── موتور جستجوی هوشمند آهنگ ───
 def search_music_ultra(query: str, max_results=10):
     os.makedirs("downloads", exist_ok=True)
     
@@ -133,6 +123,7 @@ def search_music_ultra(query: str, max_results=10):
 
     return results[:max_results]
 
+# ─── دانلودر ───
 def run_yt_download(url: str, is_audio: bool):
     os.makedirs("downloads", exist_ok=True)
     ydl_opts = {
@@ -171,15 +162,22 @@ def run_yt_download(url: str, is_audio: bool):
             filename = files[0] if files else base + ".mp3"
         return filename, info.get("title", "Music")
 
-@app.on_message(filters.me & ~filters.forwarded)
+# ─── پردازش دستورات ───
+@app.on_message(~filters.forwarded)
 async def main_handler(client, message):
     global TIME_NAME_ACTIVE
-    if not message or not message.text: 
+    
+    # کنترل امنیت: فقط پیام‌های ارسالی توسط خودم
+    if not message or not message.text:
+        return
+    if message.from_user and not message.from_user.is_self:
         return
     
     text = message.text.strip()
     lower_text = text.lower()
     chat_id = message.chat.id
+
+    print(f"[دستور دریافت شد]: {text}") # جهت نمایش در Railway Logs
 
     clean_text = text.translate(PERSIAN_TO_ENG)
 
@@ -280,6 +278,7 @@ async def main_handler(client, message):
         await app.update_profile(first_name=DEFAULT_NAME)
         await safe_edit(client, message, "❌ **اسم ساعتی خاموش شد.**")
 
+# ─── تسک پس‌زمینه اسم ساعتی ───
 async def time_task():
     while True:
         if TIME_NAME_ACTIVE:
@@ -294,7 +293,7 @@ async def time_task():
 async def main():
     await app.start()
     asyncio.create_task(time_task())
-    print("KHAN SELF IS ONLINE & READY")
+    print("=== KHAN SELF IS ONLINE & READY ===")
     await idle()
 
 if __name__ == "__main__":
