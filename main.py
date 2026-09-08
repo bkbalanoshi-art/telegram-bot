@@ -54,12 +54,21 @@ def gregorian_to_jalali(gy, gm, gd):
     else: jm = 7 + ((days - 186) // 30); jd = 1 + ((days - 186) % 30)
     return jy, jm, jd
 
-# ─── موتور جستجوی ترکیبی چندگانه (YouTube + SoundCloud) ───
-def search_music_multi_engine(query: str, max_results=5):
+# ─── موتور جستجوی هوشمند جدیدترین آهنگ‌ها (۱۰ تایی) ───
+def search_music_multi_engine(query: str, max_results=10):
     results = []
     seen_urls = set()
 
-    # ۱. جستجو در یوتیوب با کلاینت‌های ضدبلاکی
+    clean_q = query.strip()
+    search_queries = []
+    
+    if "جدید" not in clean_q:
+        search_queries.append(f"ytsearch15:آهنگ جدید {clean_q}")
+        search_queries.append(f"ytsearch15:{clean_q} جدید")
+    
+    search_queries.append(f"ytsearch15:{clean_q}")
+    search_queries.append(f"scsearch15:{clean_q}")
+
     yt_opts = {
         "quiet": True,
         "no_warnings": True,
@@ -73,51 +82,31 @@ def search_music_multi_engine(query: str, max_results=5):
         }
     }
 
-    try:
-        with yt_dlp.YoutubeDL(yt_opts) as ydl:
-            info = ydl.extract_info(f"ytsearch{max_results}:{query}", download=False)
-            if info and "entries" in info:
-                for entry in info["entries"]:
-                    if not entry: continue
-                    url = entry.get("url") or entry.get("webpage_url")
-                    if not url and entry.get("id"):
-                        url = f"https://www.youtube.com/watch?v={entry.get('id')}"
-                    if url and url not in seen_urls:
-                        seen_urls.add(url)
-                        results.append({
-                            "title": entry.get("title", "موزیک"),
-                            "url": url,
-                            "duration": int(entry.get("duration") or 0),
-                            "uploader": entry.get("uploader") or entry.get("channel") or "YouTube"
-                        })
-    except Exception as e:
-        print(f"YouTube search error: {e}")
-
-    # ۲. اگر یوتیوب کم نتونست بیاره یا بلاک بود، از سوندکلاود بگرد (سوندکلاود بلاک نمیشه)
-    if len(results) < max_results:
-        sc_opts = {
-            "quiet": True,
-            "no_warnings": True,
-            "extract_flat": True,
-            "skip_download": True
-        }
+    for sq in search_queries:
         try:
-            with yt_dlp.YoutubeDL(sc_opts) as ydl:
-                sc_info = ydl.extract_info(f"scsearch{max_results}:{query}", download=False)
-                if sc_info and "entries" in sc_info:
-                    for entry in sc_info["entries"]:
+            with yt_dlp.YoutubeDL(yt_opts) as ydl:
+                info = ydl.extract_info(sq, download=False)
+                if info and "entries" in info:
+                    for entry in info["entries"]:
                         if not entry: continue
                         url = entry.get("url") or entry.get("webpage_url")
+                        if not url and entry.get("id"):
+                            url = f"https://www.youtube.com/watch?v={entry.get('id')}"
                         if url and url not in seen_urls:
                             seen_urls.add(url)
                             results.append({
                                 "title": entry.get("title", "موزیک"),
                                 "url": url,
                                 "duration": int(entry.get("duration") or 0),
-                                "uploader": entry.get("uploader") or "SoundCloud"
+                                "uploader": entry.get("uploader") or entry.get("channel") or "Music"
                             })
+                        if len(results) >= max_results:
+                            break
         except Exception as e:
-            print(f"SoundCloud search error: {e}")
+            print(f"Search query failed ({sq}): {e}")
+
+        if len(results) >= max_results:
+            break
 
     return results[:max_results]
 
@@ -205,7 +194,7 @@ async def handle_commands(client, message):
     # تبدیل اعداد فارسی به انگلیسی
     clean_digit_text = text.translate(PERSIAN_TO_ENG)
 
-    # ۱. پاسخ به لیست انتخابی (۱ تا ۵)
+    # ۱. پاسخ به لیست انتخابی (۱ تا ۱۰)
     if clean_digit_text.isdigit() and message.reply_to_message:
         if chat_id in pending_music_choices:
             choice = int(clean_digit_text) - 1
@@ -220,26 +209,26 @@ async def handle_commands(client, message):
                 await message.edit_text("❌ **عدد انتخابی در لیست نیست!**")
                 return
 
-    # ۲. جستجوی موزیک (پشتیبانی از انواع زبان‌ها و قومیت‌ها)
+    # ۲. جستجوی جدیدترین موزیک‌ها (۱۰ تایی)
     if lower_text.startswith("اهنگ ") or lower_text.startswith("آهنگ "):
         query = text.split(maxsplit=1)[1].strip()
-        await message.edit_text(f"🔍 **در حال جستجوی دقیق برای:** `{query}`...")
+        await message.edit_text(f"🔍 **در حال جستجوی جدیدترین آهنگ‌های:** `{query}`...")
         
-        results = await asyncio.to_thread(search_music_multi_engine, query, 5)
+        results = await asyncio.to_thread(search_music_multi_engine, query, 10)
         
         if not results:
-            await message.edit_text("❌ **متأسفانه هیچ موزیکی پیدا نشد!**\nلطفاً اسم آهنگ یا خواننده را دقیق‌تر بنویسید.")
+            await message.edit_text("❌ **متأسفانه هیچ موزیکی پیدا نشد!**\nلطفاً اسم آهنگ یا خواننده را بررسی کنید.")
             return
             
         pending_music_choices[chat_id] = results
         
-        msg = f"🎧 **نتایج یافت‌شده برای:** `{query}`\n\n"
+        msg = f"🎧 **جدیدترین آهنگ‌های یافت‌شده برای:** `{query}`\n\n"
         for i, res in enumerate(results):
             dur = res['duration']
             dur_str = f"{dur//60}:{dur%60:02d}" if dur > 0 else "نامشخص"
             msg += f"**{i+1}.** `{res['title'][:45]}`\n🎙 {res['uploader'][:25]} ⏱ {dur_str}\n\n"
             
-        msg += "👇 **کافیست روی همین پیام ریپلای کنید و شماره آن (مثلاً ۱ یا 1) را بفرستید.**"
+        msg += "👇 **کافیست روی همین پیام ریپلای کنید و شماره آن (مثلاً ۱ یا ۱۰) را بفرستید.**"
         await message.edit_text(msg)
         return
 
@@ -264,7 +253,7 @@ async def handle_commands(client, message):
     if lower_text in ["پنل", "منو", "panel"]:
         await message.edit_text(
             "╭───「 👑 **𝗞𝗛𝗔𝗡 𝗦𝗘𝗟𝗙** 」\n"
-            "├ 🎵 `اهنگ <نام>` ➔ جستجوی موزیک (فارسی، محلی، خارجی)\n"
+            "├ 🎵 `اهنگ <نام خواننده>` ➔ لیست ۱۰ تایی جدیدترین آهنگ‌ها\n"
             "├ 🎬 `ویدیو <نام>` ➔ دانلود ویدیو\n"
             "├ ⏱ `ساعت` | `تاریخ` | `زمان`\n"
             "├ 👤 `تایم فعال` | `تایم خاموش`\n"
@@ -290,7 +279,7 @@ async def handle_commands(client, message):
 async def main():
     await app.start()
     asyncio.create_task(auto_time_name_task())
-    print("سلف‌بات خان با جستجوی هوشمند فعال شد...")
+    print("سلف‌بات خان با لیست ۱۰ تایی آهنگ‌ها فعال شد...")
     await idle()
     await app.stop()
 
