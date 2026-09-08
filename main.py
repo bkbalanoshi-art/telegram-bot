@@ -17,7 +17,7 @@ API_ID = int(os.environ.get("API_ID", 0))
 API_HASH = os.environ.get("API_HASH", "")
 SESSION_STRING = os.environ.get("SESSION_STRING", "")
 
-app = Client("khan_self", API_ID, API_HASH, session_string=SESSION_STRING)
+app = Client("khan_self", API_ID, API_HASH, session_string=SESSION_STRING, in_memory=True)
 
 # تنظیمات زمانی و حافظه موقت
 IRAN_TZ = ZoneInfo("Asia/Tehran")
@@ -34,10 +34,25 @@ def to_bold_time(t):
 
 MUSIC_PREFIXES = (
     "اهنگ ", "آهنگ ", "موزیک ", "ترانه ", "ریمیکس ", "رمیکس ",
-    "دانلود اهنگ ", "دانلود آهنگ ", "دانلود موزیک ", "صوتی "
+    "دانلود اهنگ ", "دانلود آهنگ ", "دانلود موزیک ", "دانلود ترانه ",
+    "دانلود ریمیکس ", "اهنگ جدید ", "آهنگ جدید ", "صوتی "
 )
 
-# ─── موتور جستجوی هوشمند بدون نیاز به API واسطه ───
+# ─── تابع ارسال و ادیت امن برای حل قطعی ارور Peer ID ───
+async def safe_edit(client, message, text):
+    try:
+        await message.edit_text(text)
+    except Exception:
+        try:
+            await client.send_message(message.chat.id, text)
+            try:
+                await message.delete()
+            except Exception:
+                pass
+        except Exception as e:
+            print(f"Safe Edit Error: {e}")
+
+# ─── موتور جستجوی هوشمند آهنگ ───
 def search_music_ultra(query: str, max_results=10):
     os.makedirs("downloads", exist_ok=True)
     
@@ -61,7 +76,6 @@ def search_music_ultra(query: str, max_results=10):
     results = []
     seen_urls = set()
 
-    # اولویت جستجو: ۱. یوتیوب موزیک | ۲. یوتیوب عمومی
     search_queries = [
         f"ytmusicsearch{max_results}:{query}",
         f"ytsearch{max_results}:{query}"
@@ -101,7 +115,7 @@ def search_music_ultra(query: str, max_results=10):
 
     return results[:max_results]
 
-# ─── دانلودر قدرتمند ───
+# ─── دانلودر ───
 def run_yt_download(url: str, is_audio: bool):
     os.makedirs("downloads", exist_ok=True)
     ydl_opts = {
@@ -162,18 +176,21 @@ async def main_handler(client, message):
             target_url = res_list[idx]["url"]
             del pending_music_choices[chat_id]
             
-            await message.edit_text("⏳ **در حال دانلود با بالاترین کیفیت...**")
+            await safe_edit(client, message, "⏳ **در حال دانلود با بالاترین کیفیت...**")
             try:
                 path, title = await asyncio.to_thread(run_yt_download, target_url, True)
-                await message.edit_text("📤 **در حال آپلود به تلگرام...**")
+                await safe_edit(client, message, "📤 **در حال آپلود به تلگرام...**")
                 await message.reply_audio(path, caption=f"🎵 **{title}**")
-                await message.delete()
+                try:
+                    await message.delete()
+                except Exception:
+                    pass
                 if os.path.exists(path): 
                     os.remove(path)
             except Exception as e:
-                await message.edit_text(f"❌ **خطا در دانلود:** `{str(e)[:150]}`")
+                await safe_edit(client, message, f"❌ **خطا در دانلود:** `{str(e)[:150]}`")
         else:
-            await message.edit_text("❌ **عدد انتخابی در لیست نیست!**")
+            await safe_edit(client, message, "❌ **عدد انتخابی در لیست نیست!**")
         return
 
     # ۲. جستجوی آهنگ
@@ -181,15 +198,15 @@ async def main_handler(client, message):
     if matched_prefix:
         query = text[len(matched_prefix):].strip()
         if not query:
-            await message.edit_text("❌ **لطفاً نام آهنگ یا خواننده را وارد کنید.**")
+            await safe_edit(client, message, "❌ **لطفاً نام آهنگ یا خواننده را وارد کنید.**")
             return
 
-        await message.edit_text(f"🔍 **در حال جستجوی دقیق برای:** `{query}`...")
+        await safe_edit(client, message, f"🔍 **در حال جستجوی دقیق برای:** `{query}`...")
         
         results = await asyncio.to_thread(search_music_ultra, query, 10)
         
         if not results:
-            await message.edit_text("❌ **هیچ موزیکی پیدا نشد!**\nلطفاً کلمات دیگری را امتحان کنید.")
+            await safe_edit(client, message, "❌ **هیچ موزیکی پیدا نشد!**\nلطفاً کلمات دیگری را امتحان کنید.")
             return
 
         pending_music_choices[chat_id] = results
@@ -200,29 +217,32 @@ async def main_handler(client, message):
             msg += f"**{i+1}.** `{r['title'][:42]}` | `{dur}`\n"
             
         msg += "\n👇 **روی همین پیام ریپلای کنید و عدد مورد نظر (مثلاً ۱ یا ۱۰) را بفرستید.**"
-        await message.edit_text(msg)
+        await safe_edit(client, message, msg)
         return
 
     # ۳. دانلود ویدیو
     elif lower_text.startswith("ویدیو ") or lower_text.startswith("کلیپ "):
         query = text.split(maxsplit=1)[1].strip()
-        await message.edit_text(f"🔍 **در حال جستجوی ویدیو...**")
+        await safe_edit(client, message, f"🔍 **در حال جستجوی ویدیو...**")
         results = await asyncio.to_thread(search_music_ultra, query, 1)
         if results:
             try:
                 path, title = await asyncio.to_thread(run_yt_download, results[0]["url"], False)
                 await message.reply_video(path, caption=f"🎬 **{title}**")
-                await message.delete()
+                try:
+                    await message.delete()
+                except Exception:
+                    pass
                 if os.path.exists(path): os.remove(path)
             except Exception as e:
-                await message.edit_text(f"❌ **خطا:** `{str(e)[:100]}`")
+                await safe_edit(client, message, f"❌ **خطا:** `{str(e)[:100]}`")
         else:
-            await message.edit_text("❌ **ویدیویی یافت نشد.**")
+            await safe_edit(client, message, "❌ **ویدیویی یافت نشد.**")
         return
 
     # ۴. دستورات عمومی
     elif lower_text in ["پنل", "منو", "panel"]:
-        await message.edit_text(
+        await safe_edit(client, message, 
             "╭───「 👑 **𝗞𝗛𝗔𝗡 𝗦𝗘𝗟𝗙** 」\n"
             "│\n"
             "├ 🎵 `اهنگ <نام>` ➔ جستجوی لیست ۱۰ تایی\n"
@@ -234,16 +254,16 @@ async def main_handler(client, message):
         )
     elif lower_text == "ساعت":
         t = datetime.now(IRAN_TZ).strftime("%H:%M:%S")
-        await message.edit_text(f"⏰ ساعت ایران: `{t}`")
+        await safe_edit(client, message, f"⏰ ساعت ایران: `{t}`")
     elif lower_text == "پینگ":
-        await message.edit_text("🚀 **سلف‌بات فعال و آنلاین است!**")
+        await safe_edit(client, message, "🚀 **سلف‌بات فعال و آنلاین است!**")
     elif text == "تایم فعال":
         TIME_NAME_ACTIVE = True
-        await message.edit_text("✅ **اسم ساعتی فعال شد.**")
+        await safe_edit(client, message, "✅ **اسم ساعتی فعال شد.**")
     elif text == "تایم خاموش":
         TIME_NAME_ACTIVE = False
         await app.update_profile(first_name=DEFAULT_NAME)
-        await message.edit_text("❌ **اسم ساعتی خاموش شد.**")
+        await safe_edit(client, message, "❌ **اسم ساعتی خاموش شد.**")
 
 # ─── تسک پس‌زمینه اسم ساعتی ───
 async def time_task():
@@ -253,7 +273,7 @@ async def time_task():
                 now = datetime.now(IRAN_TZ).strftime("%H:%M")
                 bold = to_bold_time(now)
                 await app.update_profile(first_name=f"{DEFAULT_NAME} ┃ {bold}")
-            except: 
+            except Exception: 
                 pass
         await asyncio.sleep(60)
 
