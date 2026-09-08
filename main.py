@@ -1,7 +1,7 @@
 from pyrogram import Client, filters
-from pyrogram.types import ReplyKeyboardMarkup, KeyboardButton
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 api_id = int(os.environ.get("API_ID", 0))
 api_hash = os.environ.get("API_HASH", "")
@@ -14,67 +14,53 @@ app = Client(
     session_string=session_string
 )
 
-MY_USER_ID = 8989331210  # آیدی تو
-IRAN_TZ = timezone(timedelta(hours=3, minutes=30))
+# تنظیم منطقه زمانی ایران و آمریکا (نیویورک)
+IRAN_TZ = ZoneInfo("Asia/Tehran")
+US_TZ = ZoneInfo("America/New_York") 
 
+# دیکشنری برای تبدیل روزهای هفته به فارسی
+persian_weekdays = {
+    "Saturday": "شنبه", "Sunday": "یکشنبه", "Monday": "دوشنبه",
+    "Tuesday": "سه‌شنبه", "Wednesday": "چهارشنبه",
+    "Thursday": "پنج‌شنبه", "Friday": "جمعه"
+}
 
-def get_iran_time():
-    return datetime.now(IRAN_TZ)
-
-
-def get_main_panel():
-    keyboard = [
-        [KeyboardButton("⏰ ساعت ایران"), KeyboardButton("📅 تاریخ ایران")],
-        [KeyboardButton("📊 روز هفته"), KeyboardButton("❌ بستن")]
-    ]
-    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-
-
+# فقط به پیام های خودت جواب میده
 @app.on_message(filters.private & filters.me)
-async def handle_message(client, message):
-    if not message.from_user or message.from_user.id != MY_USER_ID:
-        return
+async def handle_commands(client, message):
     if not message.text:
         return
 
     text = message.text.strip()
 
-    if text in ["پنل", "panel", "منو", "menu", "/panel"]:
+    # دستور ساعت
+    if text in ["ساعت", "/ساعت", "time"]:
+        iran_time = datetime.now(IRAN_TZ).strftime('%H:%M:%S')
+        us_time = datetime.now(US_TZ).strftime('%H:%M:%S')
         await message.reply(
-            "╔════════════════════════╗\n"
-            "║  🎛️ پنل مدیریت ربات  ║\n"
-            "╚════════════════════════╝\n\n"
-            "یکی از گزینه‌های کیبورد رو بزن:",
-            reply_markup=get_main_panel()
+            f"🇮🇷 **ساعت ایران:** `{iran_time}`\n"
+            f"🇺🇸 **ساعت آمریکا (نیویورک):** `{us_time}`"
         )
 
-    elif text == "⏰ ساعت ایران":
-        now = get_iran_time()
-        await message.reply(f"⏰ ساعت ایران: `{now.strftime('%H:%M:%S')}`")
-
-    elif text == "📅 تاریخ ایران":
-        now = get_iran_time()
-        months = ["", "ژانویه", "فوریه", "مارس", "آوریل", "مه", "ژوئن",
-                  "ژوئیه", "اوت", "سپتامبر", "اکتبر", "نوامبر", "دسامبر"]
+    # دستور تاریخ
+    elif text in ["تاریخ", "/تاریخ", "date"]:
+        iran_date = datetime.now(IRAN_TZ)
+        us_date = datetime.now(US_TZ)
         await message.reply(
-            f"📅 تاریخ: `{now.strftime('%Y-%m-%d')}`\n"
-            f"ماه: {months[now.month]}\n"
-            f"سال: {now.year}"
+            f"🇮🇷 **تاریخ ایران:** `{iran_date.strftime('%Y-%m-%d')}`\n"
+            f"🇺🇸 **تاریخ آمریکا:** `{us_date.strftime('%Y-%m-%d')}`"
         )
 
-    elif text == "📊 روز هفته":
-        now = get_iran_time()
-        weekdays = {
-            "Saturday": "شنبه", "Sunday": "یکشنبه", "Monday": "دوشنبه",
-            "Tuesday": "سه‌شنبه", "Wednesday": "چهارشنبه",
-            "Thursday": "پنج‌شنبه", "Friday": "جمعه"
-        }
-        await message.reply(f"📊 امروز: {weekdays.get(now.strftime('%A'), '')}")
-
-    elif text == "❌ بستن":
-        await message.reply("پنل بسته شد!", reply_markup=ReplyKeyboardRemove())
+    # دستور روز هفته
+    elif text in ["روز", "/روز", "weekday"]:
+        iran_day = persian_weekdays.get(datetime.now(IRAN_TZ).strftime("%A"), "")
+        us_day = datetime.now(US_TZ).strftime("%A")
+        await message.reply(
+            f"🇮🇷 **روز در ایران:** {iran_day}\n"
+            f"🇺🇸 **روز در آمریکا:** {us_day}"
+        )
 
 
 if __name__ == "__main__":
-    print("ربات در حال استارت شدن...")
+    print("سلف‌بات فعال شد...")
     app.run()
