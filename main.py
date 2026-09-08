@@ -1,12 +1,11 @@
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 import os
-import asyncio
 from datetime import datetime, timedelta, timezone
 
-api_id = int(os.environ["API_ID"])
-api_hash = os.environ["API_HASH"]
-session_string = os.environ["SESSION_STRING"]
+api_id = int(os.environ.get("API_ID", 0))
+api_hash = os.environ.get("API_HASH", "")
+session_string = os.environ.get("SESSION_STRING", "")
 
 app = Client(
     name="my_account",
@@ -15,8 +14,7 @@ app = Client(
     session_string=session_string
 )
 
-MY_USER_ID = 8989331210  # ✅ ایدی تو
-
+MY_USER_ID = 8989331210  # ✅ ایدی عددی تو (دقت کن حتماً عددی باشه نه استرینگ)
 IRAN_TZ = timezone(timedelta(hours=3, minutes=30))
 
 
@@ -34,7 +32,8 @@ def get_main_panel():
     return InlineKeyboardMarkup(keyboard)
 
 
-@app.on_message(filters.private)
+# ✅ اضافه شد filters.me تا فقط به پیام های خودت جواب بده
+@app.on_message(filters.private & filters.me)
 async def handle_message(client, message):
     if not message.from_user or message.from_user.id != MY_USER_ID:
         return
@@ -93,15 +92,7 @@ async def handle_callback(client, callback_query):
         await callback_query.message.delete()
 
 
-async def main():
-    await app.start()
-    me = await app.get_me()
-    print("=" * 50)
-    print(f"✅ ربات فعال شد")
-    print(f"اکانت: {me.first_name}")
-    print("=" * 50)
-    await asyncio.sleep(99999999)
-
-
+# ✅ روش استاندارد ران کردن Pyrogram
 if __name__ == "__main__":
-    app.run(main())
+    print("ربات در حال استارت شدن...")
+    app.run()
