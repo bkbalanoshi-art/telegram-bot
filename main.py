@@ -16,7 +16,7 @@ app = Client(
     session_string=session_string
 )
 
-MY_USER_ID = 8989331210  # عوضش کن با User ID خودت
+MY_USER_ID =  8989331210  # ⚠️ عوض کن با User ID خودت از @userinfobot
 
 HEAVY_FONTS = [
     "𝐤𝐡𝐚𝐧", "𝗸𝗵𝗮𝗻", "𝙠𝙝𝙖𝙣", "ⓀⒽⒶⓃ",
@@ -54,12 +54,9 @@ TIME_TEMPLATES = [
 ]
 
 PERSIAN_WEEKDAYS = {
-    "Saturday": "شنبه",
-    "Sunday": "یکشنبه",
-    "Monday": "دوشنبه",
-    "Tuesday": "سه‌شنبه",
-    "Wednesday": "چهارشنبه",
-    "Thursday": "پنج‌شنبه",
+    "Saturday": "شنبه", "Sunday": "یکشنبه",
+    "Monday": "دوشنبه", "Tuesday": "سه‌شنبه",
+    "Wednesday": "چهارشنبه", "Thursday": "پنج‌شنبه",
     "Friday": "جمعه",
 }
 
@@ -97,14 +94,10 @@ def get_random_style():
 
 
 def to_persian_date(dt):
-    gy = dt.year
-    gm = dt.month
-    gd = dt.day
+    gy = dt.year; gm = dt.month; gd = dt.day
     g_d_m = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334]
-    if gm <= 2:
-        gy2 = gy - 1
-    else:
-        gy2 = gy
+    if gm <= 2: gy2 = gy - 1
+    else: gy2 = gy
     days = 355666 + 365 * gy + (gy2 + 3) // 4 - (gy2 + 99) // 100 + (gy2 + 399) // 400 + gd + g_d_m[gm - 1]
     jy = -1595 + 33 * (days // 12053)
     days %= 12053
@@ -142,38 +135,53 @@ def get_main_panel():
     return InlineKeyboardMarkup(keyboard)
 
 
+# ============== حلقه ساعت خودکار به Saved Messages ==============
 async def send_time_message():
     global last_sent_hour, last_sent_minute
     while True:
         try:
             now = get_iran_time()
             current_time_str = now.strftime("%H:%M:%S")
-
             if now.hour != last_sent_hour or now.minute != last_sent_minute:
                 last_sent_hour = now.hour
                 last_sent_minute = now.minute
-
                 tag, template = get_random_style()
                 time_msg = template.format(tag=tag, time=current_time_str)
-
                 await app.send_message("me", time_msg)
-                print(f"[{current_time_str}] Sent: {time_msg}")
-
+                print(f"[Auto] {time_msg}")
         except Exception as e:
-            print(f"Error: {e}")
-
+            print(f"Auto time error: {e}")
         await asyncio.sleep(30)
 
 
+# ============== آپدیت پروفایل هر ۶۰ ثانیه ==============
+async def profile_clock_loop():
+    while True:
+        try:
+            iran_now = get_iran_time()
+            time_str = iran_now.strftime("%H:%M")
+            
+            # ✅ فقط ساعت عوض میشه، KHAN ثابت می‌مونه
+            # خط عمودی | وسطشون
+            profile_text = f"KHAN | {time_str}"
+            
+            # آپدیت نام خانوادگی پروفایل (Last Name)
+            await app.update_profile(last_name=profile_text)
+            print(f"[Profile] Updated: {profile_text}")
+        except Exception as e:
+            print(f"[Profile] Error: {e}")
+        
+        await asyncio.sleep(60)  # هر ۶۰ ثانیه دقیقاً
+
+
+# ============== هندل پیام ==============
 @app.on_message(filters.private)
 async def handle_message(client, message: Message):
     try:
         if not message.from_user or message.from_user.id != MY_USER_ID:
             return
-
         if message.from_user.is_self:
             return
-
         if not message.text:
             return
 
@@ -202,16 +210,16 @@ async def handle_message(client, message: Message):
             await message.reply(f"📅 تاریخ آمریکا (شرقی):\n`{us.strftime('%A %Y-%m-%d')}`")
 
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"Handle msg error: {e}")
 
 
+# ============== دکمه پنل ==============
 @app.on_callback_query()
 async def handle_callback(client, callback_query):
     try:
         if callback_query.from_user.id != MY_USER_ID:
             await callback_query.answer("❌ دسترسی نداری", show_alert=True)
             return
-
         data = callback_query.data
         await callback_query.answer()
 
@@ -219,44 +227,38 @@ async def handle_callback(client, callback_query):
             now = get_iran_time()
             time_str = now.strftime("%H:%M:%S")
             tag, template = get_random_style()
-            text = template.format(tag=tag, time=time_str)
-            await callback_query.message.reply(f"⏰ **ساعت ایران:**\n`{text}`")
+            await callback_query.message.reply(f"⏰ **ساعت ایران:**\n`{template.format(tag=tag, time=time_str)}`")
 
         elif data == "time_us_east":
             us = get_us_eastern()
-            time_str = us.strftime("%H:%M:%S")
-            text = f"🕐 ساعت آمریکا شرقی: {time_str}"
-            await callback_query.message.reply(f"`{text}`")
+            await callback_query.message.reply(f"🕐 ساعت آمریکا شرقی: `{us.strftime('%H:%M:%S')}`")
 
         elif data == "time_us_west":
             us = get_us_pacific()
-            time_str = us.strftime("%H:%M:%S")
-            text = f"🕓 ساعت آمریکا غربی: {time_str}"
-            await callback_query.message.reply(f"`{text}`")
+            await callback_query.message.reply(f"🕓 ساعت آمریکا غربی: `{us.strftime('%H:%M:%S')}`")
 
         elif data == "date_iran":
-            await callback_query.message.reply(
-                f"📅 **تاریخ ایران:**\n`{get_persian_date_text()}`"
-            )
+            await callback_query.message.reply(f"📅 **تاریخ ایران:**\n`{get_persian_date_text()}`")
 
         elif data == "date_us":
-            us = get_us_eastern()
+            us_e = get_us_eastern()
+            us_w = get_us_pacific()
             await callback_query.message.reply(
-                f"📅 **تاریخ آمریکا (شرقی):**\n`{us.strftime('%A %Y-%m-%d')}`\n"
-                f"📅 **تاریخ آمریکا (غربی):**\n`{get_us_pacific().strftime('%A %Y-%m-%d')}`"
+                f"📅 **تاریخ آمریکا:**\n"
+                f"🔹 شرقی: `{us_e.strftime('%A %Y-%m-%d %H:%M')}`\n"
+                f"🔹 غربی: `{us_w.strftime('%A %Y-%m-%d %H:%M')}`"
             )
 
         elif data == "weekday":
             iran = get_iran_time()
             us_e = get_us_eastern()
             us_w = get_us_pacific()
-            text = (
+            await callback_query.message.reply(
                 f"📊 **روز هفته:**\n\n"
                 f"🇮🇷 ایران: {PERSIAN_WEEKDAYS.get(iran.strftime('%A'), '')}\n"
                 f"🇺🇸 آمریکا شرقی: {us_e.strftime('%A')}\n"
                 f"🇺🇸 آمریکا غربی: {us_w.strftime('%A')}"
             )
-            await callback_query.message.reply(text)
 
         elif data == "refresh_all":
             iran = get_iran_time()
@@ -264,17 +266,16 @@ async def handle_callback(client, callback_query):
             us_w = get_us_pacific()
             tag, template = get_random_style()
             time_iran = template.format(tag=tag, time=iran.strftime("%H:%M:%S"))
-
-            text = (
+            await callback_query.message.reply(
                 "🔄 **همه اطلاعات:**\n\n"
                 f"⏰ ساعت ایران: `{time_iran}`\n"
                 f"🕐 ساعت آمریکا شرقی: `{us_e.strftime('%H:%M:%S')}`\n"
                 f"🕓 ساعت آمریکا غربی: `{us_w.strftime('%H:%M:%S')}`\n\n"
                 f"📅 تاریخ ایران: `{get_persian_date_text()}`\n"
                 f"📅 تاریخ آمریکا: `{us_e.strftime('%A %Y-%m-%d')}`\n\n"
-                f"📊 روز هفته ایران: {PERSIAN_WEEKDAYS.get(iran.strftime('%A'), '')}"
+                f"📊 روز هفته ایران: {PERSIAN_WEEKDAYS.get(iran.strftime('%A'), '')}",
+                reply_markup=get_main_panel()
             )
-            await callback_query.message.reply(text, reply_markup=get_main_panel())
 
         elif data == "close_panel":
             await callback_query.message.delete()
@@ -290,10 +291,12 @@ async def main():
     print("=" * 50)
     print(f"✅ ربات فعال شد")
     print(f"اکانت: {me.first_name}")
-    print(f"User ID: {me.id}")
+    print(f"User ID: {me.id}  <-- این رو با User ID واقعی خودت عوض کن اگر لازم بود")
     print("=" * 50)
 
     asyncio.create_task(send_time_message())
+    asyncio.create_task(profile_clock_loop())  # ✅ پروفایل هر ۶۰ ثانیه
+    
     await asyncio.sleep(99999999)
 
 
