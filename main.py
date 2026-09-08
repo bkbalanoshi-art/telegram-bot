@@ -6,8 +6,28 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 import static_ffmpeg
 import yt_dlp
+
+# ─── 🛠 رفع قطعی باگ Peer ID برای آیدی‌های جدید تلگرام (-1003...) ───
+import pyrogram.utils
+
+pyrogram.utils.MIN_CHANNEL_ID = -100999999999999
+pyrogram.utils.MIN_CHAT_ID = -99999999999999
+
+def custom_get_peer_type(peer_id: int) -> str:
+    if isinstance(peer_id, int):
+        if peer_id < 0:
+            if str(peer_id).startswith("-100"):
+                return "channel"
+            return "chat"
+        elif peer_id > 0:
+            return "user"
+    raise ValueError(f"Peer id invalid: {peer_id}")
+
+pyrogram.utils.get_peer_type = custom_get_peer_type
+# ───────────────────────────────────────────────────────────────────
+
 from pyrogram import Client, filters, idle
-from pyrogram.errors import FloodWait, PeerIdInvalid, RPCError
+from pyrogram.errors import FloodWait
 
 # فعال‌سازی FFMPEG
 static_ffmpeg.add_paths()
@@ -38,29 +58,19 @@ MUSIC_PREFIXES = (
     "دانلود ریمیکس ", "اهنگ جدید ", "آهنگ جدید ", "صوتی "
 )
 
-# ─── تابع ارسال و ادیت هوشمند جهت رفع قطعی باگ Peer ID ───
 async def safe_edit(client, message, text):
     try:
         await message.edit_text(text)
-    except (ValueError, KeyError, PeerIdInvalid, RPCError):
-        # اگر آیدی چت در کش نبود، کش چت‌ها را به‌روزرسانی می‌کنیم
+    except Exception:
         try:
-            async for _ in client.get_dialogs(limit=30):
-                pass
-        except Exception:
-            pass
-        
-        # تلاش مجدد برای ارسال پیام
-        try:
-            await message.reply_text(text)
+            await client.send_message(message.chat.id, text)
             try:
                 await message.delete()
             except Exception:
                 pass
         except Exception as e:
-            print(f"Safe Edit Fallback Error: {e}")
+            print(f"Safe Edit Error: {e}")
 
-# ─── موتور جستجوی فوق‌العاده دقیق آهنگ ───
 def search_music_ultra(query: str, max_results=10):
     os.makedirs("downloads", exist_ok=True)
     
@@ -123,7 +133,6 @@ def search_music_ultra(query: str, max_results=10):
 
     return results[:max_results]
 
-# ─── دانلودر ───
 def run_yt_download(url: str, is_audio: bool):
     os.makedirs("downloads", exist_ok=True)
     ydl_opts = {
@@ -162,7 +171,6 @@ def run_yt_download(url: str, is_audio: bool):
             filename = files[0] if files else base + ".mp3"
         return filename, info.get("title", "Music")
 
-# ─── پردازش دستورات ───
 @app.on_message(filters.me & ~filters.forwarded)
 async def main_handler(client, message):
     global TIME_NAME_ACTIVE
@@ -173,7 +181,6 @@ async def main_handler(client, message):
     lower_text = text.lower()
     chat_id = message.chat.id
 
-    # تبدیل اعداد فارسی به انگلیسی
     clean_text = text.translate(PERSIAN_TO_ENG)
 
     # ۱. انتخاب عدد از لیست ۱۰ تایی (ریپلای)
@@ -232,7 +239,7 @@ async def main_handler(client, message):
     elif lower_text.startswith("ویدیو ") or lower_text.startswith("کلیپ "):
         query = text.split(maxsplit=1)[1].strip()
         await safe_edit(client, message, f"🔍 **در حال جستجوی ویدیو...**")
-        results = await asyncio.to_thread(search_music_ultra, query, 1)
+        results = await asyncio-to_thread(search_music_ultra, query, 1)
         if results:
             try:
                 path, title = await asyncio.to_thread(run_yt_download, results[0]["url"], False)
@@ -273,7 +280,6 @@ async def main_handler(client, message):
         await app.update_profile(first_name=DEFAULT_NAME)
         await safe_edit(client, message, "❌ **اسم ساعتی خاموش شد.**")
 
-# ─── تسک پس‌زمینه اسم ساعتی ───
 async def time_task():
     while True:
         if TIME_NAME_ACTIVE:
@@ -287,15 +293,6 @@ async def time_task():
 
 async def main():
     await app.start()
-    
-    # 💥 حل قطعی باگ Peer ID: پیش‌بارگذاری لیست چت‌ها هنگام استارت 💥
-    print("در حال بارگذاری و ثبت آیدی چت‌ها در حافظه...")
-    try:
-        async for _ in app.get_dialogs(limit=100):
-            pass
-    except Exception as e:
-        print(f"Dialog pre-fetch warning: {e}")
-
     asyncio.create_task(time_task())
     print("KHAN SELF IS ONLINE & READY")
     await idle()
