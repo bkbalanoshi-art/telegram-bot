@@ -17,7 +17,8 @@ API_ID = int(os.environ.get("API_ID", 0))
 API_HASH = os.environ.get("API_HASH", "")
 SESSION_STRING = os.environ.get("SESSION_STRING", "")
 
-app = Client("khan_self", API_ID, API_HASH, session_string=SESSION_STRING, in_memory=True)
+# ساخت کلاینت بدون in_memory برای حل باگ get_peer_type
+app = Client("khan_self", API_ID, API_HASH, session_string=SESSION_STRING)
 
 # تنظیمات زمانی و حافظه موقت
 IRAN_TZ = ZoneInfo("Asia/Tehran")
@@ -38,7 +39,7 @@ MUSIC_PREFIXES = (
     "دانلود ریمیکس ", "اهنگ جدید ", "آهنگ جدید ", "صوتی "
 )
 
-# ─── تابع ارسال و ادیت امن برای حل قطعی ارور Peer ID ───
+# ─── تابع ارسال و ادیت امن ───
 async def safe_edit(client, message, text):
     try:
         await message.edit_text(text)
@@ -52,7 +53,7 @@ async def safe_edit(client, message, text):
         except Exception as e:
             print(f"Safe Edit Error: {e}")
 
-# ─── موتور جستجوی هوشمند آهنگ ───
+# ─── موتور جستجوی فوق‌العاده دقیق آهنگ ───
 def search_music_ultra(query: str, max_results=10):
     os.makedirs("downloads", exist_ok=True)
     
@@ -158,7 +159,8 @@ def run_yt_download(url: str, is_audio: bool):
 @app.on_message(filters.me & ~filters.forwarded)
 async def main_handler(client, message):
     global TIME_NAME_ACTIVE
-    if not message.text: 
+    # امنیت: اگر پیام متن نداشت یا فرستنده معلوم نبود پردازش نکن
+    if not message or not message.text or not message.from_user: 
         return
     
     text = message.text.strip()
@@ -168,7 +170,7 @@ async def main_handler(client, message):
     # تبدیل اعداد فارسی به انگلیسی
     clean_text = text.translate(PERSIAN_TO_ENG)
 
-    # ۱. انتخاب عدد از لیست (ریپلای)
+    # ۱. انتخاب عدد از لیست ۱۰ تایی (ریپلای)
     if clean_text.isdigit() and message.reply_to_message and chat_id in pending_music_choices:
         idx = int(clean_text) - 1
         res_list = pending_music_choices[chat_id]
