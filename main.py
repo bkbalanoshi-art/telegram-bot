@@ -1,0 +1,45 @@
+from pyrogram import Client, filters
+import os
+import asyncio
+from datetime import datetime
+
+api_id = int(os.environ["API_ID"])
+api_hash = os.environ["API_HASH"]
+session_string = os.environ["SESSION_STRING"]
+
+app = Client(
+    name="my_account",
+    api_id=api_id,
+    api_hash=api_hash,
+    session_string=session_string
+)
+
+@app.on_message(filters.private & ~filters.me)
+async def handle_message(client, message):
+    text = message.text.lower() if message.text else ""
+    
+    if "????" in text:
+        await message.reply("????! ?? ??? ???? ??")
+    elif "????" in text:
+        await message.reply("?????? ?? ?????? ??")
+    elif "????" in text:
+        await message.reply("???? ?? ?? ???? ??????? ?")
+    elif "????" in text:
+        now = datetime.now().strftime("%H:%M:%S")
+        await message.reply(f"? ???? ???? {now} ???")
+    elif "???" in text:
+        await message.reply("?? ?????: ????? ????? ????? ???? ?? ???")
+    elif "???" in text and message.reply_to_message:
+        try:
+            await message.reply_to_message.copy(message.chat.id)
+            await message.reply("? ??? ??!")
+        except Exception as e:
+            await message.reply(f"? ???: {e}")
+
+async def main():
+    await app.start()
+    print("? ???? ??? ?????!")
+    await asyncio.sleep(99999999)
+
+if __name__ == "__main__":
+    app.run(main())
